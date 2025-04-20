@@ -82,10 +82,10 @@ class CycleDataManager: ObservableObject {
             "Supplements": 40,
         ]
         
-        // Generate random changes (-10 to +10)
-        let generateRandomChange = { () -> Int in
-            return Int.random(in: -10...10)
-        }
+        // Mock changes are hardcoded below, so the random generator is unused.
+        // let generateRandomChange = { () -> Int in
+        //     return Int.random(in: -10...10)
+        // }
         
         // Create flow steps
         flowSteps = [
@@ -124,7 +124,6 @@ class CycleDataManager: ObservableObject {
             (node: "Nurture Home", score: mockNodeScores["Nurture Home"] ?? 60)
             // Removed Training, Sleep, Healthy Food, Supplements from this list
         ]
-        
         
         // Sort the 3 core levers by score (ascending) to prioritize the lowest scores
         // Use the filtered list 'coreLeversForPriorities' instead of the original 'coreLevers'

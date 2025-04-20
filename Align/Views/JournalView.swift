@@ -48,14 +48,16 @@ struct JournalView: View {
                             .id("bottomID")
                     }
                     .padding()
+                    .padding()
                 }
-                // Remove explicit background from ScrollView, it will inherit from VStack
-                .onChange(of: chatViewModel.messages) { _ in
+                // Updated onChange syntax (ignoring parameters)
+                .onChange(of: chatViewModel.messages) {
                     withAnimation {
                         scrollView.scrollTo("bottomID", anchor: .bottom)
                     }
                 }
-                .onChange(of: chatViewModel.currentStreamedText) { _ in
+                // Updated onChange syntax (ignoring parameters)
+                .onChange(of: chatViewModel.currentStreamedText) {
                     withAnimation {
                         scrollView.scrollTo("bottomID", anchor: .bottom)
                     }

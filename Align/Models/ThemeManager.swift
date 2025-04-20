@@ -74,9 +74,14 @@ class ThemeManager: ObservableObject {
             userInterfaceStyle = .unspecified
         }
         
-        UIApplication.shared.windows.forEach { window in
-            window.overrideUserInterfaceStyle = userInterfaceStyle
-        }
+        // Use modern API to access windows via scenes
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .forEach { windowScene in
+                windowScene.windows.forEach { window in
+                    window.overrideUserInterfaceStyle = userInterfaceStyle
+                }
+            }
     }
     
     // Predefined accent colors

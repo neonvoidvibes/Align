@@ -3,65 +3,99 @@ import SwiftUI
 struct CycleView: View {
     @StateObject private var cycleData = CycleDataManager()
     @EnvironmentObject private var themeManager: ThemeManager
-    @State private var showScoreInfo = false
+    // Reintroduce state variables for NodeInfo modal
     @State private var showNodeInfo = false
-    @State private var nodeInfoData: (title: String, description: String, importance: String) = ("", "", "")
+    @State private var selectedNodeId: String? = nil
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) { // Consistent spacing between cards
-                // Priority Card
-                PriorityCardView(
-                    priority: cycleData.priorities[cycleData.currentPriorityIndex],
-                    isHighestPriority: cycleData.currentPriorityIndex == 0, // Keep for background color logic
-                    currentPriorityIndex: cycleData.currentPriorityIndex, // Pass index
-                    prioritiesCount: cycleData.priorities.count, // Pass count
-                    onPrevious: cycleData.previousPriority,
-                    onNext: cycleData.nextPriority
-                )
-                
-                // Total Loop Score
-                TotalScoreView(
-                    score: cycleData.totalScore,
-                    onInfoTap: {
-                        showScoreInfo = true
-                    }
-                )
-                
-                // Energy Inputs Card
-                EnergyInputsCardView(
-                    inputs: cycleData.energyInputs,
-                    onInputTap: { inputId in
-                        nodeInfoData = cycleData.getNodeInfo(for: inputId)
-                        showNodeInfo = true
-                    }
-                )
-                
-                // Flow Steps Card
-                FlowStepsCardView(
-                    steps: cycleData.flowSteps,
-                    priorityNode: cycleData.priorities[cycleData.currentPriorityIndex].node,
-                    onStepTap: { stepId in
-                        nodeInfoData = cycleData.getNodeInfo(for: stepId)
-                        showNodeInfo = true
-                    }
-                )
+        // Wrap content in ZStack for modal layering
+        ZStack {
+            ScrollView {
+                VStack(spacing: 16) { // Consistent spacing between cards
+                    // Priority Card
+                    PriorityCardView(
+                        priority: cycleData.priorities[cycleData.currentPriorityIndex],
+                        isHighestPriority: cycleData.currentPriorityIndex == 0, // Keep for background color logic
+                        currentPriorityIndex: cycleData.currentPriorityIndex, // Pass index
+                        prioritiesCount: cycleData.priorities.count, // Pass count
+                        onPrevious: cycleData.previousPriority,
+                        onNext: cycleData.nextPriority
+                    )
+                    
+                    // Total Loop Score
+                    TotalScoreView(
+                        score: cycleData.totalScore,
+                        onInfoTap: {
+                            // Action removed - ScoreInfoView not implemented with new modal style yet
+                        }
+                    )
+                    
+                    // Energy Inputs Card
+                    EnergyInputsCardView(
+                        inputs: cycleData.energyInputs,
+                        onInputTap: { inputId in
+                            // Trigger modal presentation
+                            selectedNodeId = inputId
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showNodeInfo = true
+                            }
+                        }
+                    )
+                    
+                    // Flow Steps Card
+                    FlowStepsCardView(
+                        steps: cycleData.flowSteps,
+                        priorityNode: cycleData.priorities[cycleData.currentPriorityIndex].node,
+                        onStepTap: { stepId in
+                            // Trigger modal presentation
+                            selectedNodeId = stepId
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showNodeInfo = true
+                            }
+                        }
+                    )
+                }
+                .padding() // Keep existing padding
+                .padding(.bottom, 30) // Add extra padding at the bottom
             }
-            .padding() // Keep existing padding
-            .padding(.bottom, 30) // Add extra padding at the bottom
+            // Disable scrollview interaction when modal is shown
+            .disabled(showNodeInfo)
+
+            // Layer for background effects when modal is shown
+            if showNodeInfo {
+                Rectangle()
+                    .fill(.clear)
+                    .background(.thinMaterial) // Consistent blur
+                    .overlay(Color.black.opacity(0.4)) // Consistent dim
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    // Allow tapping background to dismiss modal
+                    .onTapGesture {
+                         withAnimation(.easeInOut(duration: 0.3)) {
+                            showNodeInfo = false
+                         }
+                    }
+            }
+
+            // Layer for NodeInfoView modal content
+            if showNodeInfo, let nodeId = selectedNodeId {
+                let nodeInfo = cycleData.getNodeInfo(for: nodeId)
+                NodeInfoView(
+                    isPresented: $showNodeInfo, // Pass binding
+                    title: nodeInfo.title,
+                    description: nodeInfo.description,
+                    importance: nodeInfo.importance
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95))) // Example transition
+                .zIndex(2) // Ensure modal is on top of effect layer
+            }
         }
-        .sheet(isPresented: $showScoreInfo) {
-            ScoreInfoView()
-        }
-        .sheet(isPresented: $showNodeInfo) {
-            NodeInfoView(
-                title: nodeInfoData.title,
-                description: nodeInfoData.description,
-                importance: nodeInfoData.importance
-            )
-        }
+        // Apply animation to the ZStack container for transitions
+        .animation(.easeInOut(duration: 0.3), value: showNodeInfo)
     }
 }
+
+// MARK: - Subviews (PriorityCardView, TotalScoreView, etc.)
 
 struct PriorityCardView: View {
     let priority: Priority
@@ -71,7 +105,6 @@ struct PriorityCardView: View {
     let onPrevious: () -> Void
     let onNext: () -> Void
     @EnvironmentObject private var themeManager: ThemeManager
-    // Remove internal cycleData instance
     
     var body: some View {
         ZStack {
@@ -100,6 +133,7 @@ struct PriorityCardView: View {
                     
                     // Text Content VStack
                     VStack(spacing: 8) {
+                        // Removed "Priority: " prefix
                         Text(priority.node)
                             .font(.futura(size: 24, weight: .bold))
                             .foregroundColor(isHighestPriority ? .black : .primary)
@@ -159,7 +193,6 @@ struct PriorityCardView: View {
         }
         // Removed fixed height to allow natural spacing based on content
     }
-    // Removed internal cycleData instance
 }
 
 struct TotalScoreView: View {

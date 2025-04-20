@@ -15,7 +15,8 @@ struct AlignApp: App {
                     // Ensure theme is applied on app launch
                     applyTheme()
                 }
-                .onChange(of: themeManager.theme) { _ in
+                // Updated onChange syntax (ignoring parameters)
+                .onChange(of: themeManager.theme) {
                     applyTheme()
                 }
         }
@@ -33,8 +34,13 @@ struct AlignApp: App {
             userInterfaceStyle = .unspecified
         }
         
-        UIApplication.shared.windows.forEach { window in
-            window.overrideUserInterfaceStyle = userInterfaceStyle
-        }
+        // Use modern API to access windows via scenes
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .forEach { windowScene in
+                windowScene.windows.forEach { window in
+                    window.overrideUserInterfaceStyle = userInterfaceStyle
+                }
+            }
     }
 }
