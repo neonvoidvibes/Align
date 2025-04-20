@@ -10,22 +10,10 @@ struct ContentView: View {
             // Use a ZStack for layering
             ZStack(alignment: .leading) {
                 
-                // Layer 1: Background Blur Layer (Conditional)
-                // Sits behind everything, provides blur when settings are open.
-                if showSettings {
-                    Rectangle()
-                        // Use clear fill, the material provides the visual. Or use .regularMaterial directly.
-                        .fill(.clear)
-                        // Apply blur using system material for standard look
-                        .background(.regularMaterial)
-                        .ignoresSafeArea() // Cover entire screen
-                        .transition(.opacity) // Fade blur in/out
-                } else {
-                    // Non-blurred background when settings are closed
-                    Rectangle()
-                         .fill(Color(UIColor.systemBackground))
-                         .ignoresSafeArea()
-                }
+                // Layer 1: Base Background (Always present, no effects)
+                Rectangle()
+                     .fill(Color(UIColor.systemBackground))
+                     .ignoresSafeArea()
 
                 // Layer 2: Main content view (Moves aside)
                 VStack(spacing: 0) {
@@ -46,7 +34,7 @@ struct ContentView: View {
                     
                     Spacer()
                 }
-                // Background MUST be clear to see blur layer behind it
+                // Background MUST be clear to see Layer 1 behind it
                 .background(.clear)
                 .cornerRadius(showSettings ? 20 : 0)
                 .offset(x: showSettings ? geometry.size.width * 0.9 : 0)
@@ -54,14 +42,18 @@ struct ContentView: View {
                 .animation(.easeInOut(duration: 0.3), value: showSettings)
                 .disabled(showSettings) // Disable interaction when settings are open
 
-                // Layer 3: Dimming Overlay (Conditional)
-                // Sits ON TOP of main content and background blur layer.
+                // Layer 3: Blur + Dimming Overlay (Conditional)
+                // Sits ON TOP of main content.
                 if showSettings {
-                    Color.black
-                        .opacity(0.4) // Dimming level
+                    Rectangle() // Base shape for effects
+                        .fill(.clear) // Transparent fill
+                        .background(.regularMaterial) // Apply blur using material
+                        .overlay( // Apply dimming on top of blur
+                            Color.black.opacity(0.4)
+                        )
                         .ignoresSafeArea() // Cover entire screen uniformly
                         .allowsHitTesting(false) // Don't block interactions
-                        .transition(.opacity) // Fade dim in/out
+                        .transition(.opacity) // Fade effects in/out
                 }
                 
                 // Layer 4: Settings panel (Slides in on top)
@@ -72,7 +64,7 @@ struct ContentView: View {
                         .zIndex(1) // Ensure settings view is visually on top
                 }
             }
-            // Animate the appearance/disappearance of conditional layers (Blur, Dim, Settings)
+            // Animate the appearance/disappearance of conditional layers (Effect Overlay, Settings)
             .animation(.easeInOut(duration: 0.3), value: showSettings)
         }
     }
