@@ -3,11 +3,23 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var themeManager: ThemeManager
+    // State for Settings Panel
     @State private var showSettings = false
+    // State for Node Info Modal
+    @State private var showNodeInfo = false
+    @State private var selectedNodeId: String? = nil
+
+    // Data manager needed for Node Info
+    @StateObject private var cycleData = CycleDataManager()
+
+    // Computed property to determine if any modal/panel is showing
+    private var isModalOrPanelShowing: Bool {
+        showSettings || showNodeInfo
+    }
     
     var body: some View {
         GeometryReader { geometry in
-            // Use a ZStack for layering
+            // Use a ZStack for layering effects, content, and modals
             ZStack(alignment: .leading) {
                 
                 // Layer 1: Base Background (Always present, no effects)
@@ -15,40 +27,50 @@ struct ContentView: View {
                      .fill(Color(UIColor.systemBackground))
                      .ignoresSafeArea()
 
-                // Layer 2: Main content view (Moves aside)
+                // Layer 2: Main content view (Moves aside for settings, stays put for node info)
                 VStack(spacing: 0) {
                     TabNavigationView(
                         currentView: $appState.currentView,
                         onSettingsClick: {
+                            // Ensure only settings animation runs if node info isn't showing
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 showSettings.toggle()
                             }
                         }
                     )
                     
+                    // Switch between Journal and Cycle views
                     if appState.currentView == .journal {
                         JournalView()
                     } else {
-                        CycleView()
+                        // Pass closure to CycleView to trigger NodeInfo presentation
+                        CycleView(presentNodeInfo: { nodeId in
+                            selectedNodeId = nodeId
+                            // Ensure only modal animation runs if settings isn't showing
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showNodeInfo = true
+                            }
+                        })
+                        .environmentObject(cycleData)
                     }
                     
                     Spacer()
                 }
-                // Background MUST be clear to see Layer 1 behind it
+                // Background MUST be clear to reveal effect layer when active
                 .background(.clear)
-                .cornerRadius(showSettings ? 20 : 0)
-                .offset(x: showSettings ? geometry.size.width * 0.9 : 0)
-                // Animate only transform changes here
+                .cornerRadius(showSettings ? 20 : 0) // Only round corners for settings
+                .offset(x: showSettings ? geometry.size.width * 0.9 : 0) // Only offset for settings
+                // Animate transforms specifically for settings state change
                 .animation(.easeInOut(duration: 0.3), value: showSettings)
-                .disabled(showSettings) // Disable interaction when settings are open
+                // Disable interaction if any modal/panel is showing
+                .disabled(isModalOrPanelShowing)
 
-                // Layer 3: Blur + Dimming Overlay (Conditional)
-                // Sits ON TOP of main content.
-                if showSettings {
+                // Layer 3: Unified Effect Overlay (Blur + Dimming - Conditional)
+                // Sits ON TOP of main content. Shows if *either* modal/panel is active.
+                if isModalOrPanelShowing {
                     Rectangle() // Base shape for effects
-                        .fill(.clear) // Keep base clear for material
-                        // Apply blur using a less intense system material
-                        .background(.thinMaterial)
+                        .fill(.clear) // Transparent fill
+                        .background(.thinMaterial) // Apply blur using material
                         .overlay( // Apply dimming on top of blur
                             Color.black.opacity(0.4)
                         )
@@ -64,13 +86,30 @@ struct ContentView: View {
                         .transition(.move(edge: .leading))
                         .zIndex(1) // Ensure settings view is visually on top
                 }
+                
+                // Layer 5: NodeInfoView modal content (Appears on top)
+                if showNodeInfo, let nodeId = selectedNodeId {
+                    let nodeInfo = cycleData.getNodeInfo(for: nodeId)
+                    NodeInfoView(
+                        isPresented: $showNodeInfo, // Pass binding
+                        title: nodeInfo.title,
+                        description: nodeInfo.description,
+                        importance: nodeInfo.importance
+                    )
+                    // Center the modal
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.clear) // Make wrapper clear
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .zIndex(2) // Ensure modal is on top of effects & settings
+                }
             }
-            // Animate the appearance/disappearance of conditional layers (Effect Overlay, Settings)
-            .animation(.easeInOut(duration: 0.3), value: showSettings)
+            // Animate the appearance/disappearance of conditional layers (Effect Overlay, Modals)
+            .animation(.easeInOut(duration: 0.3), value: isModalOrPanelShowing)
         }
     }
 }
 
+// Previews remain the same
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
