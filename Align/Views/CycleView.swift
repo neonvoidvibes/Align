@@ -81,16 +81,20 @@ struct PriorityCardView: View {
             VStack(spacing: 8) {
                 // Removed "HIGHEST PRIORITY" text block
                 
-                HStack(spacing: 0) { // Use spacing 0 for precise control with Spacers
+                // Set alignment to .center for vertical centering of chevrons/text
+                HStack(alignment: .center, spacing: 0) {
                     // Left Chevron Button
                     Button(action: onPrevious) {
+                        // Revert to simple Image inside Button
                         Image(systemName: "chevron.left")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(isHighestPriority ? .black : themeManager.accentColor)
-                            .frame(width: 40, height: 40) // Give button a frame for consistent tap area
+                            .frame(width: 40, height: 40) // Keep fixed frame for consistent size
                             .contentShape(Rectangle())
                     }
+                    // Remove maxHeight frame, rely on HStack alignment
                     .padding(.leading, 8) // Padding from card edge
+                    .offset(y: 5) // Nudge chevron down slightly
                     
                     Spacer() // Pushes text to center
                     
@@ -104,7 +108,7 @@ struct PriorityCardView: View {
                             .font(.futura(size: 18))
                             .multilineTextAlignment(.center)
                             .foregroundColor(isHighestPriority ? .black.opacity(0.8) : .gray)
-                            .lineLimit(2) // Limit lines to prevent excessive height changes
+                            .lineLimit(3) // Increase line limit to 3
                     }
                     .frame(maxWidth: .infinity) // Allow text to take available space
                     
@@ -112,15 +116,18 @@ struct PriorityCardView: View {
                     
                     // Right Chevron Button
                     Button(action: onNext) {
+                        // Revert to simple Image inside Button
                         Image(systemName: "chevron.right")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(isHighestPriority ? .black : themeManager.accentColor)
-                            .frame(width: 40, height: 40) // Give button a frame
+                            .frame(width: 40, height: 40) // Keep fixed frame for consistent size
                             .contentShape(Rectangle())
                     }
+                    // Remove maxHeight frame, rely on HStack alignment
                     .padding(.trailing, 8) // Padding from card edge
+                    .offset(y: 5) // Nudge chevron down slightly
                 }
-                .frame(height: 100) // Give HStack a fixed height if needed to prevent layout jumps further
+                // Removed fixed height to allow natural vertical sizing
 
                 // Priority indicators
                 HStack(spacing: 6) {
@@ -216,10 +223,7 @@ struct EnergyInputsCardView: View {
                             onInputTap(input.id)
                         }
                         
-                        if input.id != inputs.last?.id {
-                            Divider()
-                                .background(Color.gray.opacity(0.2))
-                        }
+                        // Removed Divider block
                     }
                 }
             }
@@ -266,7 +270,8 @@ struct FlowStepsCardView: View {
                                 
                                 Text("\(step.score)")
                                     .font(.futura(size: 24, weight: .bold))
-                                    .foregroundColor(getStepColor(step))
+                                    // Use primary color for gray steps, accent for accent steps
+                                    .foregroundColor(getStepColor(step) == .gray ? .primary : getStepColor(step))
                             }
                         }
                         .padding(.vertical, 8)
@@ -275,10 +280,7 @@ struct FlowStepsCardView: View {
                             onStepTap(step.id)
                         }
                         
-                        if step.id != steps.last?.id {
-                            Divider()
-                                .background(Color.gray.opacity(0.2))
-                        }
+                        // Removed Divider block
                     }
                 }
             }
@@ -287,11 +289,11 @@ struct FlowStepsCardView: View {
     }
     
     private func getStepColor(_ step: FlowStep) -> Color {
-        // Explicitly color Finance/Repay Debt with accent color
-        if step.id == "Repay Debt" {
+        // Explicitly color core levers Energy, Finance, Home with accent color
+        if step.id == "Repay Debt" || step.id == "Boost Energy" || step.id == "Nurture Home" {
             return themeManager.accentColor
         }
-        // Color the node currently shown in the priority card
+        // Color the node currently shown in the priority card (if different from above)
         if step.id == priorityNode {
             return themeManager.accentColor
         }

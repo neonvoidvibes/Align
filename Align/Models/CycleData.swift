@@ -108,28 +108,27 @@ class CycleDataManager: ObservableObject {
         
         // Create priorities
         let recommendations: [String: String] = [
-            "Boost Energy": "Focus on improving your overall energy management through better routines and recovery.",
+            "Boost Energy": "Improve your energy through better routines and recovery.", // Updated text again
             "Repay Debt": "Set aside 30 minutes to review your budget and make a debt payment.",
             "Nurture Home": "Spend quality time with your partner or create a calming space at home.",
             "Training": "Schedule 3-4 short but intense workout sessions this week.",
             "Sleep": "Establish a consistent sleep schedule and aim for 7-8 hours of quality sleep.",
             "Healthy Food": "Prepare nutrient-dense meals and reduce processed food consumption.",
-            "Supplements": "Consider adding key supplements like vitamin D, magnesium, and omega-3s to your routine."
+            "Supplements": "Add key supplements to support your health and goals." // Updated text
         ]
         
-        // Create priorities based on core levers and energy inputs
-        let coreLevers = [
+        // Define the 3 core levers to be used for priorities
+        let coreLeversForPriorities = [
             (node: "Boost Energy", score: mockNodeScores["Boost Energy"] ?? 65),
             (node: "Repay Debt", score: mockNodeScores["Repay Debt"] ?? 40),
-            (node: "Nurture Home", score: mockNodeScores["Nurture Home"] ?? 60),
-            (node: "Training", score: mockNodeScores["Training"] ?? 50),
-            (node: "Sleep", score: mockNodeScores["Sleep"] ?? 60),
-            (node: "Healthy Food", score: mockNodeScores["Healthy Food"] ?? 70),
-            (node: "Supplements", score: mockNodeScores["Supplements"] ?? 40)
+            (node: "Nurture Home", score: mockNodeScores["Nurture Home"] ?? 60)
+            // Removed Training, Sleep, Healthy Food, Supplements from this list
         ]
         
-        // Sort by score (ascending) to prioritize the lowest scores
-        let sortedLevers = coreLevers.sorted { $0.score < $1.score }
+        
+        // Sort the 3 core levers by score (ascending) to prioritize the lowest scores
+        // Use the filtered list 'coreLeversForPriorities' instead of the original 'coreLevers'
+        let sortedLevers = coreLeversForPriorities.sorted { $0.score < $1.score } // Corrected variable name here
         
         // Create priority objects
         priorities = sortedLevers.enumerated().map { index, lever in
