@@ -6,6 +6,7 @@ struct JournalView: View {
     @State private var scrollToBottom = false
     
     var body: some View {
+        // Apply background to the whole VStack FIRST, ignoring bottom safe area
         VStack(spacing: 0) {
             ScrollViewReader { scrollView in
                 ScrollView {
@@ -48,6 +49,7 @@ struct JournalView: View {
                     }
                     .padding()
                 }
+                // Remove explicit background from ScrollView, it will inherit from VStack
                 .onChange(of: chatViewModel.messages) { _ in
                     withAnimation {
                         scrollView.scrollTo("bottomID", anchor: .bottom)
@@ -60,24 +62,30 @@ struct JournalView: View {
                 }
             }
             
+            // HStack for input, sits on top of the VStack's background
             HStack(spacing: 12) {
                 TextField("How's your day going?", text: $chatViewModel.inputText)
                     .font(.futura(size: 20))
                     .padding(12)
-                    .background(Color(UIColor.systemGray6))
-                    .cornerRadius(20)
+                    // Make background transparent
+                    .background(.clear)
+                    .cornerRadius(20) // Keep corner radius for the shape
                 
                 Button(action: chatViewModel.sendMessage) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 20))
+                        .fontWeight(.semibold) // Make the arrow icon thicker
                         .foregroundColor(themeManager.accentColor)
                         .frame(width: 40, height: 40)
                 }
                 .disabled(chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding()
-            .background(Color(UIColor.systemBackground))
+            // Apply padding for content positioning within the input area
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            // No background needed for the HStack, it sits on the main view background
         }
+        // Remove background modifier from the main VStack, use default system background
     }
 }
 
