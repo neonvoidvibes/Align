@@ -60,10 +60,18 @@ struct ContentView: View {
                 .background(.clear)
                 .cornerRadius(showSettings ? 20 : 0) // Only round corners for settings
                 .offset(x: showSettings ? geometry.size.width * 0.9 : 0) // Only offset for settings
-                // Animate transforms specifically for settings state change
+                // Animate only transform changes here
                 .animation(.easeInOut(duration: 0.3), value: showSettings)
-                // Disable interaction if any modal/panel is showing
-                .disabled(isModalOrPanelShowing)
+                // Disable interaction ONLY when NodeInfo is showing
+                .disabled(showNodeInfo)
+                // Add tap gesture to close Settings when it's open
+                .onTapGesture {
+                    if showSettings {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showSettings = false
+                        }
+                    }
+                }
 
                 // Layer 3: Unified Effect Overlay (Blur + Dimming - Conditional)
                 // Sits ON TOP of main content. Shows if *either* modal/panel is active.
@@ -75,7 +83,16 @@ struct ContentView: View {
                             Color.black.opacity(0.4)
                         )
                         .ignoresSafeArea() // Cover entire screen uniformly
-                        .allowsHitTesting(false) // Don't block interactions
+                        // Allow hit testing ONLY when NodeInfo is showing (to dismiss it)
+                        .allowsHitTesting(showNodeInfo)
+                        .onTapGesture {
+                            // Dismiss NodeInfo if tapped when showing
+                            if showNodeInfo {
+                                 withAnimation(.easeInOut(duration: 0.3)) {
+                                    showNodeInfo = false
+                                 }
+                            }
+                        }
                         .transition(.opacity) // Fade effects in/out
                 }
                 
