@@ -7,34 +7,36 @@ struct ContentView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            // Use a ZStack for layering settings and main content
+            // Use a ZStack for layering
             ZStack(alignment: .leading) {
                 
-                // Dedicated Background Layer (Handles base color, blur, dim)
-                Rectangle()
-                    .fill(Color(UIColor.systemBackground)) // Base color
-                    .ignoresSafeArea() // Cover entire screen including safe areas
-                    .blur(radius: showSettings ? 10 : 0) // Apply blur conditionally
-                    .overlay( // Apply dimming overlay conditionally
-                        Color.black
-                            .opacity(showSettings ? 0.4 : 0)
-                            .ignoresSafeArea() // Ensure overlay also covers safe areas
-                    )
-                    // Animate the effects on the background layer
-                    .animation(.easeInOut(duration: 0.3), value: showSettings)
-                
-                // Main content view (Sits on top of the background layer)
+                // Layer 1: Background Blur Layer (Conditional)
+                // Sits behind everything, provides blur when settings are open.
+                if showSettings {
+                    Rectangle()
+                        // Use clear fill, the material provides the visual. Or use .regularMaterial directly.
+                        .fill(.clear)
+                        // Apply blur using system material for standard look
+                        .background(.regularMaterial)
+                        .ignoresSafeArea() // Cover entire screen
+                        .transition(.opacity) // Fade blur in/out
+                } else {
+                    // Non-blurred background when settings are closed
+                    Rectangle()
+                         .fill(Color(UIColor.systemBackground))
+                         .ignoresSafeArea()
+                }
+
+                // Layer 2: Main content view (Moves aside)
                 VStack(spacing: 0) {
                     TabNavigationView(
                         currentView: $appState.currentView,
                         onSettingsClick: {
-                            // Use withAnimation for smooth transitions
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 showSettings.toggle()
                             }
                         }
                     )
-                    // No explicit top padding, rely on system safe area handling for initial position
                     
                     if appState.currentView == .journal {
                         JournalView()
@@ -42,30 +44,36 @@ struct ContentView: View {
                         CycleView()
                     }
                     
-                    Spacer() // Push content to fill available space
+                    Spacer()
                 }
-                // 1. Make the VStack background clear, so it reveals the blurred/dimmed layer underneath
+                // Background MUST be clear to see blur layer behind it
                 .background(.clear)
-                 // 2. Apply rounded corners
                 .cornerRadius(showSettings ? 20 : 0)
-                 // 3. Apply offset
                 .offset(x: showSettings ? geometry.size.width * 0.9 : 0)
-                // 4. Opacity removed - main content remains opaque
-                // 5. Animate transform changes on the main content view
+                // Animate only transform changes here
                 .animation(.easeInOut(duration: 0.3), value: showSettings)
-                 // 6. Disable interaction when settings are open
-                .disabled(showSettings)
+                .disabled(showSettings) // Disable interaction when settings are open
 
-                // Settings panel (conditionally shown on top)
+                // Layer 3: Dimming Overlay (Conditional)
+                // Sits ON TOP of main content and background blur layer.
+                if showSettings {
+                    Color.black
+                        .opacity(0.4) // Dimming level
+                        .ignoresSafeArea() // Cover entire screen uniformly
+                        .allowsHitTesting(false) // Don't block interactions
+                        .transition(.opacity) // Fade dim in/out
+                }
+                
+                // Layer 4: Settings panel (Slides in on top)
                 if showSettings {
                     SettingsView(isPresented: $showSettings)
-                        .frame(width: geometry.size.width * 0.9) // Set width
-                        // SettingsView itself provides its background
-                        .transition(.move(edge: .leading)) // Slide in/out
-                        .zIndex(1) // Ensure settings view is on top
+                        .frame(width: geometry.size.width * 0.9)
+                        .transition(.move(edge: .leading))
+                        .zIndex(1) // Ensure settings view is visually on top
                 }
             }
-            // No background modifier needed directly on ZStack anymore
+            // Animate the appearance/disappearance of conditional layers (Blur, Dim, Settings)
+            .animation(.easeInOut(duration: 0.3), value: showSettings)
         }
     }
 }
