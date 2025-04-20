@@ -46,8 +46,9 @@ struct ContentView: View {
                 // Sits ON TOP of main content.
                 if showSettings {
                     Rectangle() // Base shape for effects
-                        .fill(.clear) // Transparent fill
-                        .background(.regularMaterial) // Apply blur using material
+                        .fill(.clear) // Keep base clear for material
+                        // Apply blur using a less intense system material
+                        .background(.thinMaterial)
                         .overlay( // Apply dimming on top of blur
                             Color.black.opacity(0.4)
                         )
