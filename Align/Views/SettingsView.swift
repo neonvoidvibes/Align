@@ -8,7 +8,8 @@ struct SettingsView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            // Align Title and X button vertically based on their text baseline
+            HStack(alignment: .firstTextBaseline) {
                 Text("Settings")
                     .font(.futura(size: 32, weight: .bold))
                 
@@ -20,12 +21,12 @@ struct SettingsView: View {
                     }
                 }) {
                     Image(systemName: "xmark")
-                        .font(.title2)
+                        .font(.title2) // The size/font of the icon affects baseline alignment
                 }
             }
-            .padding()
-            .background(Color(UIColor.systemBackground))
-            
+            .padding() // Padding affects final position
+            // Removed background modifier to inherit the parent's gray background
+
             ScrollView {
                 VStack(spacing: 24) {
                     // Appearance Section
@@ -118,6 +119,7 @@ struct SettingsView: View {
                 .padding()
             }
         }
+        // Restore background here so the view itself controls its appearance
         .background(Color(UIColor.systemGray6))
         .edgesIgnoringSafeArea(.bottom)
     }
