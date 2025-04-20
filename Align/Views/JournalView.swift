@@ -9,86 +9,103 @@ struct JournalView: View {
     var body: some View {
         // Apply background to the whole VStack FIRST, ignoring bottom safe area
         VStack(spacing: 0) {
-            ScrollViewReader { scrollView in
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(chatViewModel.messages) { message in
-                            MessageView(message: message)
-                        }
-                        
-                        if chatViewModel.isTyping {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(chatViewModel.currentStreamedText)
-                                        .font(.futura(size: 24))
-                                        .foregroundColor(.primary)
-                                        .padding(.bottom, 4)
-                                    
-                                    HStack {
-                                        Circle()
-                                            .frame(width: 4, height: 4)
-                                            .opacity(0.8)
-                                        Circle()
-                                            .frame(width: 4, height: 4)
-                                            .opacity(0.8)
-                                        Circle()
-                                            .frame(width: 4, height: 4)
-                                            .opacity(0.8)
-                                    }
-                                    .foregroundColor(.gray)
-                                }
-                                .padding(.horizontal)
-                                
-                                Spacer()
-                            }
-                        }
-                        
-                        // Invisible view to scroll to
-                        Color.clear
-                            .frame(height: 1)
-                            .id("bottomID")
-                    }
-                    .padding()
-                    .padding()
-                }
-                // Updated onChange syntax (ignoring parameters)
-                .onChange(of: chatViewModel.messages) {
-                    withAnimation {
-                        scrollView.scrollTo("bottomID", anchor: .bottom)
-                    }
-                }
-                // Updated onChange syntax (ignoring parameters)
-                .onChange(of: chatViewModel.currentStreamedText) {
-                    withAnimation {
-                        scrollView.scrollTo("bottomID", anchor: .bottom)
-                    }
-                }
-            }
-            
-            // HStack for input, sits on top of the VStack's background
-            HStack(spacing: 12) {
-                TextField("How's your day going?", text: $chatViewModel.inputText)
-                    .font(.futura(size: 20))
-                    .padding(12)
-                    // Make background transparent
-                    .background(.clear)
-                    .cornerRadius(20) // Keep corner radius for the shape
-                
-                Button(action: chatViewModel.sendMessage) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 20))
-                        .fontWeight(.semibold) // Make the arrow icon thicker
-                        .foregroundColor(themeManager.accentColor)
-                        .frame(width: 40, height: 40)
-                }
-                .disabled(chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            // Apply padding for content positioning within the input area
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            // No background needed for the HStack, it sits on the main view background
+            // Extracted ScrollView content
+            messageListView
+
+            // Extracted Input Area
+            inputAreaView
         }
         // Remove background modifier from the main VStack, use default system background
+    }
+
+    // Computed property for the message list ScrollView
+    private var messageListView: some View {
+        ScrollViewReader { scrollView in
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(chatViewModel.messages) { message in
+                        MessageView(message: message)
+                    }
+
+                    if chatViewModel.isTyping {
+                        // Display only the typing indicator dots
+                        HStack {
+                            VStack(alignment: .leading) {
+                                // REMOVED: Text(chatViewModel.currentStreamedText) display
+
+                                // Keep the typing dots indicator
+                                HStack {
+                                    Circle()
+                                        .frame(width: 4, height: 4)
+                                        .opacity(0.8)
+                                    Circle()
+                                        .frame(width: 4, height: 4)
+                                        .opacity(0.8)
+                                    Circle()
+                                        .frame(width: 4, height: 4)
+                                        .opacity(0.8)
+                                }
+                                .foregroundColor(.gray)
+                            }
+                            .padding(.horizontal)
+
+                            Spacer()
+                        }
+                    }
+
+                    // Invisible view to scroll to
+                    Color.clear
+                        .frame(height: 1)
+                        .id("bottomID")
+                }
+                .padding() // Keep original padding if needed
+                .padding() // Keep original padding if needed
+            }
+            // Updated onChange syntax (ignoring parameters)
+            .onChange(of: chatViewModel.messages) {
+                withAnimation {
+                    scrollView.scrollTo("bottomID", anchor: .bottom)
+                }
+            }
+            // Updated onChange syntax (ignoring parameters)
+            // Scroll when messages change
+            .onChange(of: chatViewModel.messages) {
+                withAnimation {
+                    scrollView.scrollTo("bottomID", anchor: .bottom)
+                }
+            }
+            // Scroll when typing indicator appears/disappears
+            .onChange(of: chatViewModel.isTyping) {
+                 withAnimation {
+                     scrollView.scrollTo("bottomID", anchor: .bottom)
+                 }
+            }
+        }
+    }
+
+    // Computed property for the input area HStack
+    private var inputAreaView: some View {
+        HStack(spacing: 12) {
+            TextField("How's your day going?", text: $chatViewModel.inputText)
+                .font(.futura(size: 20))
+                .padding(12)
+                // Make background transparent
+                .background(.clear)
+                .cornerRadius(20) // Keep corner radius for the shape
+
+            Button(action: chatViewModel.sendMessage) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 20))
+                    .fontWeight(.semibold) // Make the arrow icon thicker
+                    .foregroundColor(themeManager.accentColor)
+                    .frame(width: 40, height: 40)
+            }
+            .disabled(chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        // Apply padding for content positioning within the input area
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        // No background needed for the HStack, it sits on the main view background
     }
 }
 
@@ -107,7 +124,7 @@ struct MessageView: View {
                         .font(.futura(size: 24))
                         .foregroundColor(.primary)
                         .fixedSize(horizontal: false, vertical: true)
-                    
+
                     Text(formatTime(message.timestamp))
                         .font(.futura(size: 12))
                         .foregroundColor(.gray)
@@ -123,7 +140,7 @@ struct MessageView: View {
                         .font(.futura(size: 24))
                         .foregroundColor(themeManager.accentColor)
                         .fixedSize(horizontal: false, vertical: true)
-                    
+
                     Text(formatTime(message.timestamp))
                         .font(.futura(size: 12))
                         .foregroundColor(.gray)
@@ -132,10 +149,40 @@ struct MessageView: View {
             }
         }
     }
-    
+
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "hh:mm a"
         return formatter.string(from: date)
+    }
+}
+
+// Previews might need adjustment if ChatViewModel requires services
+struct JournalView_Previews: PreviewProvider {
+    // Create instances of services needed by ChatViewModel for the preview
+    @StateObject static var previewDbService = DatabaseService()
+    static let previewLlmService = LLMService.shared // Use singleton
+
+    static var previews: some View {
+        // Instantiate ChatViewModel with preview services
+        let previewChatViewModel = ChatViewModel(databaseService: previewDbService, llmService: previewLlmService)
+
+        // Add mock messages if needed for preview design
+        // Example:
+        let _ = {
+             previewChatViewModel.messages = [
+                 ChatMessage(role: .assistant, content: "Preview: How's it going?", timestamp: Date()),
+                 ChatMessage(role: .user, content: "Feeling pretty good today.", timestamp: Date().addingTimeInterval(60))
+             ]
+             // Simulate typing state for preview if desired
+             // previewChatViewModel.isTyping = true
+         }()
+
+
+        return JournalView()
+            .environmentObject(previewChatViewModel) // Provide the view model
+            .environmentObject(ThemeManager()) // Provide ThemeManager
+            // Provide services if any subview needs them directly via environment
+            .environmentObject(previewDbService)
     }
 }
