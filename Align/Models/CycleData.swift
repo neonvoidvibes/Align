@@ -3,11 +3,11 @@ import SwiftUI
 
 // Node weights according to updated requirements
 let NODE_WEIGHTS: [String: Double] = [
-    // Core Levers (75% total)
-    "Boost Energy": 0.15, // Reduced from 0.25 to make room for Energy Inputs
+    // Core Levers (80% total)
+    "Boost Energy": 0.30,
     "Repay Debt": 0.25,
     "Nurture Home": 0.25,
-    // Energy Inputs (30% total, 7.5% each)
+    // Energy Inputs (Adds to "Boost Energy", 30% total, 7.5% each)
     "Training": 0.075,
     "Sleep": 0.075,
     "Healthy Food": 0.075,
@@ -166,7 +166,7 @@ class CycleDataManager: ObservableObject {
             "Boost Energy": (
                 title: "Boost Energy",
                 description: "Your energy level affects everything downstream in the cycle. Focus on sleep, nutrition, exercise, and supplements to maintain optimal energy.",
-                importance: "Core lever with 15% weight in your total score."
+                importance: "Core lever with 30% weight in your total score based on energy tasks."
             ),
             "Increase Focus": (
                 title: "Increase Focus",
@@ -183,8 +183,8 @@ class CycleDataManager: ObservableObject {
                 description: "The financial results of your work. This feeds directly into debt repayment and cash reserves.",
                 importance: "Secondary node with 5% weight in your total score."
             ),
-            "Repay Debt": (
-                title: "Repay Debt",
+            "Stabilize Finances": (
+                title: "Stabilize Finances",
                 description: "Reducing financial obligations and building cash reserves. This reduces stress and improves future options.",
                 importance: "Core lever with 25% weight in your total score."
             ),
