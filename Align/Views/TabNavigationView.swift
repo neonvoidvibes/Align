@@ -4,11 +4,12 @@ struct TabNavigationView: View {
     @Binding var currentView: AppView
     var onSettingsClick: () -> Void
     @EnvironmentObject private var themeManager: ThemeManager
-    
-    // Define constants for nav bar dimensions
-    private let selectedNavBarWidth: CGFloat = 54
-    private let unselectedNavBarWidth: CGFloat = 27
-    private let navBarHeight: CGFloat = 3
+    // Selected: Original 54 * 0.75 = 40.5 -> 41
+    // Unselected: Half of new selected = 40.5 / 2 = 20.25 -> 20
+    // Height: Original 3 * 1.25 = 3.75
+    private let selectedNavBarWidth: CGFloat = 41
+    private let unselectedNavBarWidth: CGFloat = 20
+    private let navBarHeight: CGFloat = 3.75
 
     var body: some View {
         VStack(spacing: 12) { // Adjust vertical spacing as needed
