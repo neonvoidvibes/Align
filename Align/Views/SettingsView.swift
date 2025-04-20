@@ -22,6 +22,7 @@ struct SettingsView: View {
                 }) {
                     Image(systemName: "xmark")
                         .font(.title2) // The size/font of the icon affects baseline alignment
+                        .foregroundColor(themeManager.accentColor) // Use accent color
                 }
             }
             .padding() // Padding affects final position

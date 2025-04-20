@@ -38,17 +38,22 @@ struct TabNavigationView: View {
                 // Settings Button
                 Button(action: onSettingsClick) {
                     // Align the rectangles to the leading edge (left)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 4) { // Adjust spacing if needed for larger bars
+                        // Increase bar size by 25% (width and height)
                         Rectangle()
-                            .frame(width: 24, height: 2)
+                            .frame(width: 30, height: 2.5) // 24 * 1.25 = 30, 2 * 1.25 = 2.5
                             .foregroundColor(.primary)
                         Rectangle()
-                            .frame(width: 20, height: 2)
+                            .frame(width: 25, height: 2.5) // 20 * 1.25 = 25, 2 * 1.25 = 2.5
                             .foregroundColor(.primary)
                     }
-                    .frame(width: 30, height: 30)
+                    // Increase frame size by 25% (30 * 1.25 = 37.5 -> 38)
+                    .frame(width: 38, height: 38)
                 }
-                .padding(.leading)
+                .padding(.leading) // Keep padding for spacing from edge
+                // Remove padding, use offset instead for visual shift only
+                // .padding(.top, 8)
+                .offset(y: 6) // Apply vertical offset to shift icon down
 
                 Spacer() // Pushes title towards center/right
 
@@ -58,13 +63,14 @@ struct TabNavigationView: View {
 
                 Spacer() // Pushes title towards center/left
 
-                // Invisible Placeholder to balance the settings button
+                // This helps keep the title visually centered.
                 Rectangle()
                     .fill(Color.clear)
-                    .frame(width: 30, height: 30)
-                    .padding(.trailing)
+                    // Match new larger settings button frame size
+                    .frame(width: 38, height: 38)
+                    .padding(.trailing) // Keep padding consistent
+
             }
-            // .firstTextBaseline alignment handles vertical alignment
             
         }
         // Overall top positioning handled by ContentView
