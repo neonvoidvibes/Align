@@ -9,11 +9,13 @@ struct CycleView: View {
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 16) { // Consistent spacing between cards
                 // Priority Card
                 PriorityCardView(
                     priority: cycleData.priorities[cycleData.currentPriorityIndex],
-                    isHighestPriority: cycleData.currentPriorityIndex == 0,
+                    isHighestPriority: cycleData.currentPriorityIndex == 0, // Keep for background color logic
+                    currentPriorityIndex: cycleData.currentPriorityIndex, // Pass index
+                    prioritiesCount: cycleData.priorities.count, // Pass count
                     onPrevious: cycleData.previousPriority,
                     onNext: cycleData.nextPriority
                 )
@@ -45,7 +47,8 @@ struct CycleView: View {
                     }
                 )
             }
-            .padding()
+            .padding() // Keep existing padding
+            .padding(.bottom, 30) // Add extra padding at the bottom
         }
         .sheet(isPresented: $showScoreInfo) {
             ScoreInfoView()
@@ -62,10 +65,13 @@ struct CycleView: View {
 
 struct PriorityCardView: View {
     let priority: Priority
-    let isHighestPriority: Bool
+    let isHighestPriority: Bool // To control background color
+    let currentPriorityIndex: Int // Index of the currently shown priority
+    let prioritiesCount: Int // Total number of priorities for dots
     let onPrevious: () -> Void
     let onNext: () -> Void
     @EnvironmentObject private var themeManager: ThemeManager
+    // Remove internal cycleData instance
     
     var body: some View {
         ZStack {
@@ -73,21 +79,24 @@ struct PriorityCardView: View {
                 .fill(isHighestPriority ? themeManager.accentColor : Color(UIColor.systemGray6))
             
             VStack(spacing: 8) {
-                if isHighestPriority {
-                    Text("HIGHEST PRIORITY")
-                        .font(.futura(size: 14, weight: .bold))
-                        .foregroundColor(.black)
-                }
+                // Removed "HIGHEST PRIORITY" text block
                 
-                HStack {
+                HStack(spacing: 0) { // Use spacing 0 for precise control with Spacers
+                    // Left Chevron Button
                     Button(action: onPrevious) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(isHighestPriority ? .black : themeManager.accentColor)
+                            .frame(width: 40, height: 40) // Give button a frame for consistent tap area
+                            .contentShape(Rectangle())
                     }
+                    .padding(.leading, 8) // Padding from card edge
                     
+                    Spacer() // Pushes text to center
+                    
+                    // Text Content VStack
                     VStack(spacing: 8) {
-                        Text("Priority: \(priority.node)")
+                        Text(priority.node)
                             .font(.futura(size: 24, weight: .bold))
                             .foregroundColor(isHighestPriority ? .black : .primary)
                         
@@ -95,38 +104,55 @@ struct PriorityCardView: View {
                             .font(.futura(size: 18))
                             .multilineTextAlignment(.center)
                             .foregroundColor(isHighestPriority ? .black.opacity(0.8) : .gray)
+                            .lineLimit(2) // Limit lines to prevent excessive height changes
                     }
-                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity) // Allow text to take available space
                     
+                    Spacer() // Pushes text to center
+                    
+                    // Right Chevron Button
                     Button(action: onNext) {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundColor(isHighestPriority ? .black : themeManager.accentColor)
+                            .frame(width: 40, height: 40) // Give button a frame
+                            .contentShape(Rectangle())
                     }
+                    .padding(.trailing, 8) // Padding from card edge
                 }
-                
+                .frame(height: 100) // Give HStack a fixed height if needed to prevent layout jumps further
+
                 // Priority indicators
                 HStack(spacing: 6) {
-                    ForEach(0..<7) { index in
-                        Circle()
-                            .frame(width: index == cycleData.currentPriorityIndex ? 12 : 6, height: 6)
-                            .foregroundColor(
-                                index == cycleData.currentPriorityIndex
-                                ? (isHighestPriority ? .black : themeManager.accentColor)
-                                : (isHighestPriority ? .black.opacity(0.3) : Color.gray.opacity(0.3))
-                            )
+                    // Use prioritiesCount passed from parent view
+                    ForEach(0..<prioritiesCount, id: \.self) { index in
+                        // Check if this dot represents the currently displayed priority
+                        let isActive = index == currentPriorityIndex
+                        // Use Capsule for active dot, Circle for inactive
+                        Group {
+                            if isActive {
+                                Capsule()
+                                    .frame(width: 16, height: 6) // Elongated shape for active
+                            } else {
+                                Circle()
+                                    .frame(width: 6, height: 6) // Standard circle for inactive
+                            }
+                        }
+                        .foregroundColor(
+                            isActive
+                            ? (isHighestPriority ? .black : themeManager.accentColor) // Active color
+                            : (isHighestPriority ? .black.opacity(0.3) : Color.gray.opacity(0.3)) // Inactive color
+                        )
+                        .animation(.easeInOut(duration: 0.2), value: isActive) // Animate shape/color change
                     }
                 }
                 .padding(.top, 8)
             }
             .padding()
         }
-        .frame(height: 180)
+        // Removed fixed height to allow natural spacing based on content
     }
-    
-    private var cycleData: CycleDataManager {
-        return CycleDataManager()
-    }
+    // Removed internal cycleData instance
 }
 
 struct TotalScoreView: View {
@@ -148,16 +174,11 @@ struct TotalScoreView: View {
                     .font(.futura(size: 64, weight: .bold))
                     .foregroundColor(themeManager.accentColor)
                 
-                Button(action: onInfoTap) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 16))
-                        .foregroundColor(.gray)
-                }
-                .position(x: 280, y: -40)
+                // Removed info button
             }
             .padding()
         }
-        .frame(height: 120)
+        // Removed fixed height to allow natural spacing based on content
     }
 }
 
@@ -266,11 +287,20 @@ struct FlowStepsCardView: View {
     }
     
     private func getStepColor(_ step: FlowStep) -> Color {
+        // Explicitly color Finance/Repay Debt with accent color
+        if step.id == "Repay Debt" {
+            return themeManager.accentColor
+        }
+        // Color the node currently shown in the priority card
         if step.id == priorityNode {
             return themeManager.accentColor
-        } else if step.isPriority {
+        }
+        // Dim other priority nodes
+        else if step.isPriority {
             return themeManager.accentColor.opacity(0.7)
-        } else {
+        }
+        // Default color for non-priority nodes
+        else {
             return .gray
         }
     }
