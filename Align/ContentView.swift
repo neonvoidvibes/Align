@@ -10,7 +10,20 @@ struct ContentView: View {
             // Use a ZStack for layering settings and main content
             ZStack(alignment: .leading) {
                 
-                // Main content view
+                // Dedicated Background Layer (Handles base color, blur, dim)
+                Rectangle()
+                    .fill(Color(UIColor.systemBackground)) // Base color
+                    .ignoresSafeArea() // Cover entire screen including safe areas
+                    .blur(radius: showSettings ? 10 : 0) // Apply blur conditionally
+                    .overlay( // Apply dimming overlay conditionally
+                        Color.black
+                            .opacity(showSettings ? 0.4 : 0)
+                            .ignoresSafeArea() // Ensure overlay also covers safe areas
+                    )
+                    // Animate the effects on the background layer
+                    .animation(.easeInOut(duration: 0.3), value: showSettings)
+                
+                // Main content view (Sits on top of the background layer)
                 VStack(spacing: 0) {
                     TabNavigationView(
                         currentView: $appState.currentView,
@@ -21,8 +34,7 @@ struct ContentView: View {
                             }
                         }
                     )
-                    // Remove explicit top padding; ZStack safe area handling should position it correctly
-                    // .padding(.top, 50)
+                    // No explicit top padding, rely on system safe area handling for initial position
                     
                     if appState.currentView == .journal {
                         JournalView()
@@ -32,36 +44,28 @@ struct ContentView: View {
                     
                     Spacer() // Push content to fill available space
                 }
-                // Apply transformations when settings are shown
+                // 1. Make the VStack background clear, so it reveals the blurred/dimmed layer underneath
+                .background(.clear)
+                 // 2. Apply rounded corners
+                .cornerRadius(showSettings ? 20 : 0)
+                 // 3. Apply offset
                 .offset(x: showSettings ? geometry.size.width * 0.9 : 0)
-                // .scaleEffect(showSettings ? 0.95 : 1.0) // Removed scale effect
-                .cornerRadius(showSettings ? 20 : 0) // Keep rounded corners when pushed aside
-                .blur(radius: showSettings ? 10 : 0) // Add blur effect
-                // Add dimming overlay
-                .overlay(
-                    Color.black
-                        .opacity(showSettings ? 0.4 : 0)
-                        .cornerRadius(showSettings ? 20 : 0) // Match corner radius
-                        .allowsHitTesting(showSettings) // Allow tapping overlay to potentially dismiss settings (optional)
-                )
-                // Animate these changes (offset, cornerRadius, blur, overlay opacity)
+                // 4. Opacity removed - main content remains opaque
+                // 5. Animate transform changes on the main content view
                 .animation(.easeInOut(duration: 0.3), value: showSettings)
-                .disabled(showSettings) // Disable interaction when settings are open
-                // Background for the VStack, ignoring safe area to fill behind rounded corners/scale
-                .background(Color(UIColor.systemBackground).ignoresSafeArea(.container, edges: .all))
-                
-                // Settings panel (conditionally shown)
+                 // 6. Disable interaction when settings are open
+                .disabled(showSettings)
+
+                // Settings panel (conditionally shown on top)
                 if showSettings {
                     SettingsView(isPresented: $showSettings)
                         .frame(width: geometry.size.width * 0.9) // Set width
-                        // Apply background here to ensure SettingsView is opaque
-                        .background(Color(UIColor.systemGray6))
+                        // SettingsView itself provides its background
                         .transition(.move(edge: .leading)) // Slide in/out
                         .zIndex(1) // Ensure settings view is on top
                 }
             }
-            // Background for the ZStack, respecting safe areas
-            .background(Color(UIColor.systemBackground))
+            // No background modifier needed directly on ZStack anymore
         }
     }
 }
