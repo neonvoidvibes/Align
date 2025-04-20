@@ -29,7 +29,7 @@ struct ContentView: View {
                                 }
                             }
                         )
-                        .padding(.top, 20)
+                        // .padding(.top, 0) // Removed explicit top padding to place it right below the safe area/notch
                         
                         if appState.currentView == .journal {
                             JournalView()
@@ -39,6 +39,7 @@ struct ContentView: View {
                         
                         Spacer() // Push content to fill available space
                     }
+                    .padding(.top, 50) // Added padding to push content down
                     .frame(width: geometry.size.width)
                     .offset(x: showSettings ? geometry.size.width * 0.8 : 0)
                 }
