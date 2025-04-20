@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct JournalView: View {
-    @StateObject private var chatViewModel = ChatViewModel()
+    // Inject ChatViewModel via environment
+    @EnvironmentObject private var chatViewModel: ChatViewModel
     @EnvironmentObject private var themeManager: ThemeManager
-    @State private var scrollToBottom = false
-    
+    @State private var scrollToBottom = false // Keep state for scroll logic if needed
+
     var body: some View {
         // Apply background to the whole VStack FIRST, ignoring bottom safe area
         VStack(spacing: 0) {
@@ -91,13 +92,16 @@ struct JournalView: View {
     }
 }
 
+// Renamed ChatBubble equivalent
 struct MessageView: View {
     let message: ChatMessage
     @EnvironmentObject private var themeManager: ThemeManager
-    
+
     var body: some View {
+        // Align based on role
         HStack {
             if message.role == .assistant {
+                // Assistant message bubble
                 VStack(alignment: .leading, spacing: 4) {
                     Text(message.content)
                         .font(.futura(size: 24))
@@ -109,11 +113,11 @@ struct MessageView: View {
                         .foregroundColor(.gray)
                 }
                 .padding(.horizontal)
-                
-                Spacer()
-            } else {
-                Spacer()
-                
+                // Ensure assistant bubble takes max width if needed, or keep as is
+                Spacer() // Pushes assistant bubble left
+            } else { // User message
+                Spacer() // Pushes user bubble right
+
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(message.content)
                         .font(.futura(size: 24))

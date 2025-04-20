@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		64C8CABE2DB5B4DA001E8527 /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = 64C8CABD2DB5B4DA001E8527 /* OpenAI */; };
+		64C8CAC12DB5B5A5001E8527 /* Libsql in Frameworks */ = {isa = PBXBuildFile; productRef = 64C8CAC02DB5B5A5001E8527 /* Libsql */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		64EC16BD2DB5781300D45D8C /* Align.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Align.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +28,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				64C8CABE2DB5B4DA001E8527 /* OpenAI in Frameworks */,
+				64C8CAC12DB5B5A5001E8527 /* Libsql in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +72,8 @@
 			);
 			name = Align;
 			packageProductDependencies = (
+				64C8CABD2DB5B4DA001E8527 /* OpenAI */,
+				64C8CAC02DB5B5A5001E8527 /* Libsql */,
 			);
 			productName = Align;
 			productReference = 64EC16BD2DB5781300D45D8C /* Align.app */;
@@ -94,6 +103,10 @@
 			);
 			mainGroup = 64EC16B42DB5781300D45D8C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				64C8CABC2DB5B4DA001E8527 /* XCRemoteSwiftPackageReference "swift-openai-responses" */,
+				64C8CABF2DB5B5A5001E8527 /* XCRemoteSwiftPackageReference "libsql-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 64EC16BE2DB5781300D45D8C /* Products */;
 			projectDirPath = "";
@@ -324,6 +337,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		64C8CABC2DB5B4DA001E8527 /* XCRemoteSwiftPackageReference "swift-openai-responses" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/m1guelpf/swift-openai-responses.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.4;
+			};
+		};
+		64C8CABF2DB5B5A5001E8527 /* XCRemoteSwiftPackageReference "libsql-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tursodatabase/libsql-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		64C8CABD2DB5B4DA001E8527 /* OpenAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 64C8CABC2DB5B4DA001E8527 /* XCRemoteSwiftPackageReference "swift-openai-responses" */;
+			productName = OpenAI;
+		};
+		64C8CAC02DB5B5A5001E8527 /* Libsql */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 64C8CABF2DB5B5A5001E8527 /* XCRemoteSwiftPackageReference "libsql-swift" */;
+			productName = Libsql;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 64EC16B52DB5781300D45D8C /* Project object */;
 }

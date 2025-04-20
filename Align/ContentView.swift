@@ -3,6 +3,11 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var themeManager: ThemeManager
+
+    // Receive services from AlignApp
+    @StateObject var databaseService: DatabaseService // Pass as StateObject if JournalView modifies/observes it directly
+    let llmService: LLMService // Pass as simple let if JournalView only calls methods
+
     // State for Settings Panel
     @State private var showSettings = false
     // State for Node Info Modal
@@ -41,7 +46,10 @@ struct ContentView: View {
 
                     // Switch between Journal and Cycle views
                     if appState.currentView == .journal {
+                        // Instantiate ChatViewModel here, passing dependencies
+                        // Use @StateObject if JournalView modifies it, otherwise @ObservedObject might suffice if passed down
                         JournalView()
+                            .environmentObject(ChatViewModel(databaseService: databaseService, llmService: llmService))
                     } else {
                         // Pass closure to CycleView to trigger NodeInfo presentation
                         CycleView(presentNodeInfo: { nodeId in
@@ -128,9 +136,16 @@ struct ContentView: View {
 
 // Previews remain the same
 struct ContentView_Previews: PreviewProvider {
+    // Create instances of services for the preview
+    @StateObject static var previewDbService = DatabaseService()
+    static let previewLlmService = LLMService.shared // Use singleton for preview too
+
     static var previews: some View {
-        ContentView()
+        ContentView(databaseService: previewDbService, llmService: previewLlmService)
             .environmentObject(AppState())
             .environmentObject(ThemeManager())
+            // Also provide db/llm service to environment if child views expect them there directly
+            .environmentObject(previewDbService)
+            // .environmentObject(previewLlmService) // LLMService is usually accessed via .shared
     }
 }
