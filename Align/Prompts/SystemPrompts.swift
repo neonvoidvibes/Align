@@ -72,18 +72,19 @@ struct SystemPrompts {
         {message_content}
         ```
 
-        Respond ONLY with a single valid JSON object containing key-value pairs for the categories you identified and extracted values for. Use the exact category names from the list as keys. The value MUST be a number (integer or float). Do not include categories if they were not mentioned or quantifiable based on the guidelines.
-
-        Example Response Format:
+        You MUST respond ONLY with a single, valid JSON object matching this exact structure:
         {
-          "Sleep": 420.0,
-          "Training": 45.0,
-          "HealthyFood": 2,
-          "IncreaseFocus": 0.8,
-          "Repay Debt": 50.0
+          "CategoryName1": Number, // e.g., "Sleep": 420.0
+          "CategoryName2": Number, // e.g., "Training": 45.0
+          // ... include only mentioned categories ...
         }
+        Use the exact category names from the list as keys. The value MUST be a number (integer or float).
 
-        Do not include introductory text, explanations, apologies, or markdown formatting. Just the JSON object. If no categories are found or quantifiable in the message, return an empty JSON object {}.
+        Important:
+        - Do NOT include any introductory text, explanations, apologies, or any text outside the JSON structure.
+        - Do NOT use markdown formatting (like ```json ... ```).
+        - If no categories are found or quantifiable in the message, return an empty JSON object: {}
+        - Ensure the JSON is valid.
         """
     } // End of analysisAgentPrompt function
 
