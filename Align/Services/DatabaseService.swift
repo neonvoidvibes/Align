@@ -3,18 +3,6 @@ import Libsql // Import the SDK
 import SwiftUI // Needed for ObservableObject
 import NaturalLanguage // Needed for embedding helpers
 
-// Helper extension for safe optional integer retrieval
-extension Row {
-    func getOptionalInt(_ index: Int) throws -> Int64? {
-        let value = try self.getValue(index)
-        if case .null = value {
-            return nil
-        }
-        return try self.getInt(index)
-    }
-}
-
-
 // --- Custom Error Enum ---
 enum DatabaseError: Error {
     case initializationFailed(String)
@@ -31,7 +19,6 @@ enum DatabaseError: Error {
     case insightDecodingError(String) // Specific error for insights (though not used in Align)
 }
 
-// --- Service Class Definition ---
 @MainActor
 class DatabaseService: ObservableObject {
     // MARK: - Properties
@@ -57,6 +44,10 @@ class DatabaseService: ObservableObject {
         self.connection = try db.connect()
         print("Database connection established.")
 
+        // Enable Write-Ahead Logging (WAL) mode for better performance/concurrency
+        _ = try connection.execute("PRAGMA journal_mode=WAL;")
+        print("WAL mode enabled.")
+
         // Run schema setup synchronously using the established connection
         try setupSchemaAndIndexes() // This can throw
         print("Schema and index setup sequence completed successfully.")
@@ -76,12 +67,19 @@ class DatabaseService: ObservableObject {
             );
             """
         )
-        // Migrations (safe to run multiple times)
-        _ = try? connection.execute("ALTER TABLE ChatMessages ADD COLUMN processed_for_analysis INTEGER NOT NULL DEFAULT 0;")
-        _ = try? connection.execute("ALTER TABLE ChatMessages ADD COLUMN chatId TEXT NOT NULL DEFAULT 'default_chat';")
-        _ = try? connection.execute("ALTER TABLE ChatMessages ADD COLUMN isStarred INTEGER NOT NULL DEFAULT 0;")
-        _ = try? connection.execute("ALTER TABLE ChatMessages DROP COLUMN isUser;") // Ignore error if column doesn't exist
-        _ = try? connection.execute("ALTER TABLE ChatMessages ADD COLUMN role TEXT NOT NULL DEFAULT 'user';") // Ignore error if column exists
+        // Migrations (safe to run multiple times) - Use try, log potential errors
+        do {
+            _ = try connection.execute("ALTER TABLE ChatMessages ADD COLUMN processed_for_analysis INTEGER NOT NULL DEFAULT 0;")
+            _ = try connection.execute("ALTER TABLE ChatMessages ADD COLUMN chatId TEXT NOT NULL DEFAULT 'default_chat';")
+            _ = try connection.execute("ALTER TABLE ChatMessages ADD COLUMN isStarred INTEGER NOT NULL DEFAULT 0;")
+            // Allow DROP COLUMN to fail silently if column doesn't exist
+            _ = try? connection.execute("ALTER TABLE ChatMessages DROP COLUMN isUser;")
+             // Allow ADD COLUMN role to fail silently if it already exists
+            _ = try? connection.execute("ALTER TABLE ChatMessages ADD COLUMN role TEXT NOT NULL DEFAULT 'user';")
+        } catch {
+             // Log migration errors but don't crash the app unless critical
+             print("⚠️ [DB Schema] Non-critical migration error (may be expected if column already exists/dropped): \(error)")
+        }
         print("ChatMessages table checked/updated for Align.")
 
          // Raw Values Table
@@ -117,8 +115,10 @@ class DatabaseService: ObservableObject {
          print("PriorityNodes table checked/created.")
 
         // Indexes
+        // Assign to _ to silence unused result warning
         _ = try connection.execute("CREATE INDEX IF NOT EXISTS chat_embedding_idx ON ChatMessages( libsql_vector_idx(embedding) );")
         print("ChatMessages vector index checked/created.")
+        // Assign to _ to silence unused result warning
         _ = try connection.execute("CREATE INDEX IF NOT EXISTS raw_values_date_idx ON RawValues (date);")
         print("RawValues date index checked/created.")
     }
@@ -136,23 +136,26 @@ class DatabaseService: ObservableObject {
             if let embJSON = embeddingToJson(validEmbedding) {
                sql = """
                    INSERT OR REPLACE INTO ChatMessages (id, chatId, role, content, timestamp, isStarred, processed_for_analysis, embedding)
-                   VALUES (?, ?, ?, ?, ?, ?, 0, vector32('\(embJSON)'));
-                   """
-                params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
-                          .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
-                guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/Embed)") }
+                   VALUES (?, ?, ?, ?, ?, ?, 0, vector32('\(embJSON.replacingOccurrences(of: "'", with: "''"))'));
+                   """ // Added basic single-quote escaping for safety
+            // Explicitly cast TimeInterval to Int64 for timestamp
+            params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
+                      .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
+            guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/Embed)") }
             } else {
                  print("Warning: Failed to convert CM embedding to JSON. Saving without embedding.")
                  sql = "INSERT OR REPLACE INTO ChatMessages (id, chatId, role, content, timestamp, isStarred, processed_for_analysis, embedding) VALUES (?, ?, ?, ?, ?, ?, 0, NULL);"
+                 // Explicitly cast TimeInterval to Int64 for timestamp
                  params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
                            .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
                   guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed/JSONFail)") }
             }
         } else {
             sql = "INSERT OR REPLACE INTO ChatMessages (id, chatId, role, content, timestamp, isStarred, processed_for_analysis, embedding) VALUES (?, ?, ?, ?, ?, ?, 0, NULL);"
+            // Explicitly cast TimeInterval to Int64 for timestamp
             params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
                       .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
-            guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed)") }
+             guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed)") }
          }
         // Execute synchronously
         _ = try self.connection.execute(sql, params)
@@ -162,57 +165,90 @@ class DatabaseService: ObservableObject {
 
       // Fetch a single chat message by ID - Synchronous
      func fetchChatMessage(withId id: UUID) throws -> ChatMessage? {
-         let sql = "SELECT id, chatId, role, content, timestamp, isStarred, processed_for_analysis FROM ChatMessages WHERE id = ? LIMIT 1;"
+         let sql = """
+             SELECT id, chatId, role, content, timestamp, isStarred, processed_for_analysis
+             FROM ChatMessages WHERE id = ? LIMIT 1;
+             """
          let params: [Value] = [.text(id.uuidString)]
-         let rows = try self.connection.query(sql, params)
-         guard let row = rows.first(where: { _ in true }) else { return nil }
-         guard let idStr = try? row.getString(0), let id = UUID(uuidString: idStr),
-               let _ = try? row.getString(1), // chatId
-               let roleStr = try? row.getString(2),
-               let content = try? row.getString(3),
-               let timestampInt = try? row.getInt(4),
-               let isStarredInt = try? row.getInt(5),
-               let processedInt = try? row.getInt(6)
-         else {
-             print("Warning: Failed decode ChatMessage row during fetch for ID \(id.uuidString).")
-             throw DatabaseError.decodingFailed("Failed to decode chat message \(id.uuidString)")
+         let rows = try connection.query(sql, params)
+
+         // LEARNING (Reference App): Iterate even for LIMIT 1 queries.
+         // The .first property on Rows can be unreliable or ambiguous with throwing functions.
+         // Iteration is the documented and safer pattern for libsql-swift.
+         for row in rows {
+             // Attempt extraction within the loop
+             // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             guard
+                 let idStr = try? row.getString(Int32(0)), let uuid = UUID(uuidString: idStr), // Use Int32 index
+                 // Skip chatId (index 1) as it's not needed for the ChatMessage struct itself
+                 let roleStr = try? row.getString(Int32(2)), // Use Int32 index
+                 let content = try? row.getString(Int32(3)), // Use Int32 index
+                 let timestampInt = try? row.getInt(Int32(4)), // Use Int32 index
+                 let isStarredInt = try? row.getInt(Int32(5)), // Use Int32 index
+                 let processedInt = try? row.getInt(Int32(6)) // Use Int32 index
+             else {
+                  // If decoding fails for the single row, throw error
+                  // Ensure we log the specific row issue if possible, or just throw
+                  print("⚠️ [DB] Decoding failed for ChatMessage ID: \(id.uuidString)")
+                  throw DatabaseError.decodingFailed("Failed to decode ChatMessage \(id.uuidString)")
+             }
+
+             let role: MessageRole = (roleStr == "user") ? .user : .assistant
+             let timestamp = Date(timeIntervalSince1970: TimeInterval(timestampInt))
+
+             // If successful, return the message
+             return ChatMessage(
+                 id: uuid,
+                 role: role,
+                 content: content,
+                 timestamp: timestamp,
+                 isStarred: isStarredInt == 1,
+                 processed_for_analysis: processedInt == 1
+             )
          }
-         let role: MessageRole = (roleStr == "user") ? .user : .assistant
-         let timestamp = Date(timeIntervalSince1970: TimeInterval(timestampInt))
-         return ChatMessage(id: id, role: role, content: content, timestamp: timestamp, isStarred: isStarredInt == 1, processed_for_analysis: processedInt == 1)
+
+         // If loop did not execute (no rows found)
+         return nil
      }
+
 
      // Mark a chat message as processed for analysis - Synchronous
      func markChatMessageProcessed(_ id: UUID) throws {
           let sql = "UPDATE ChatMessages SET processed_for_analysis = 1 WHERE id = ?;"
           let params: [Value] = [.text(id.uuidString)]
-          let affectedRows = try self.connection.execute(sql, params)
-          if affectedRows == 0 { print("⚠️ [DB] Attempted to mark message processed, but ID not found: \(id.uuidString)") }
-          else { print("✅ [DB] Marked message processed: \(id.uuidString)") }
+          let count = try self.connection.execute(sql, params) // Use count for logging
+          if count == 0 {
+              print("⚠️ [DB] No message found for id \(id.uuidString) to mark processed.") // Added detail
+          } else {
+               print("✅ [DB] Marked message processed: \(id.uuidString)")
+          }
      }
 
     // Delete all messages for a specific Chat ID - Synchronous
     func deleteChatFromDB(id: UUID) throws {
         let sql = "DELETE FROM ChatMessages WHERE chatId = ?;"
         let params: [Value] = [.text(id.uuidString)]
+        // Assign to _ to silence unused result warning
         _ = try self.connection.execute(sql, params)
-        print("Attempted delete for all messages in Chat ID: \(id.uuidString)")
+        print("Attempted delete for all messages in Chat ID: \(id.uuidString)") // Keep log
     }
 
     // Delete a specific message by its ID - Synchronous
     func deleteMessageFromDB(id: UUID) throws {
         let sql = "DELETE FROM ChatMessages WHERE id = ?;"
         let params: [Value] = [.text(id.uuidString)]
+        // Assign to _ to silence unused result warning
         _ = try self.connection.execute(sql, params)
-        print("Attempted delete for ChatMessage ID: \(id.uuidString)")
+        print("Attempted delete for ChatMessage ID: \(id.uuidString)") // Keep log
     }
 
     // Toggle star status for a specific message - Synchronous
     func toggleMessageStarInDB(id: UUID, isStarred: Bool) throws {
         let sql = "UPDATE ChatMessages SET isStarred = ? WHERE id = ?;"
         let params: [Value] = [.integer(isStarred ? 1 : 0), .text(id.uuidString)]
+        // Assign to _ to silence unused result warning
         _ = try self.connection.execute(sql, params)
-        print("Attempted toggle star (\(isStarred)) for ChatMessage ID: \(id.uuidString)")
+         print("Attempted toggle star (\(isStarred)) for ChatMessage ID: \(id.uuidString)") // Keep log
     }
 
     // Load all chats - Synchronous
@@ -220,66 +256,101 @@ class DatabaseService: ObservableObject {
          let sql = "SELECT id, chatId, role, content, timestamp, isStarred FROM ChatMessages ORDER BY chatId ASC, timestamp ASC;"
          let rows = try self.connection.query(sql)
          var messagesByChatId: [UUID: [ChatMessage]] = [:]
-        for row in rows {
-            guard let idStr = try? row.getString(0), let id = UUID(uuidString: idStr),
-                  let chatIdStr = try? row.getString(1), let chatId = UUID(uuidString: chatIdStr),
-                  let roleStr = try? row.getString(2), let content = try? row.getString(3),
-                  let timestampInt = try? row.getInt(4), let isStarredInt = try? row.getInt(5)
-            else { print("Warning: Failed to decode ChatMessage row during loadAllChats grouping."); continue }
-            let role: MessageRole = (roleStr == "user") ? .user : .assistant
-            let timestamp = Date(timeIntervalSince1970: TimeInterval(timestampInt))
-            let message = ChatMessage(id: id, role: role, content: content, timestamp: timestamp, isStarred: isStarredInt == 1, processed_for_analysis: false)
-            messagesByChatId[chatId, default: []].append(message)
-        }
-        var chats: [UUID: Chat] = [:]
-        for (chatId, messages) in messagesByChatId {
-            guard !messages.isEmpty else { continue }
-            let sortedMessages = messages
-            let createdAt = sortedMessages.first!.timestamp
-            let lastUpdatedAt = sortedMessages.last!.timestamp
-            let isChatStarred = sortedMessages.contains { $0.isStarred }
-            var chat = Chat(id: chatId, messages: sortedMessages, createdAt: createdAt, lastUpdatedAt: lastUpdatedAt, isStarred: isChatStarred)
-            if let firstUserMsg = sortedMessages.first(where: { $0.role == .user }) {
-                chat.title = String(firstUserMsg.content.prefix(30)) + (firstUserMsg.content.count > 30 ? "..." : "")
-            } else { chat.title = "Chat \(chatId.uuidString.prefix(4))..." }
-            chats[chatId] = chat
-        }
-        print("Loaded and reconstructed \(chats.count) chats from DB messages.")
-        return chats
-    }
+
+         // LEARNING (Reference App): Iterate over rows, don't assume other access patterns work reliably.
+         for row in rows {
+             // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             guard
+                 let idStr = try? row.getString(Int32(0)), let msgId = UUID(uuidString: idStr),
+                 let chatIdStr = try? row.getString(Int32(1)), let chatId = UUID(uuidString: chatIdStr),
+                 let roleStr = try? row.getString(Int32(2)),
+                 let content = try? row.getString(Int32(3)),
+                 let tsInt = try? row.getInt(Int32(4)),
+                 let starred = try? row.getInt(Int32(5))
+             else {
+                  print("Warning: Failed to decode ChatMessage row during loadAllChats grouping.");
+                  continue // Skip problematic row
+             }
+
+             let timestamp = Date(timeIntervalSince1970: TimeInterval(tsInt))
+             let message = ChatMessage(id: msgId, role: MessageRole(rawValue: roleStr) ?? .user, content: content, timestamp: timestamp, isStarred: starred == 1, processed_for_analysis: false) // Assume false when loading
+             messagesByChatId[chatId, default: []].append(message)
+         }
+
+         var chats: [UUID: Chat] = [:]
+         for (chatId, messages) in messagesByChatId {
+             guard !messages.isEmpty else { continue }
+             // SQL already ordered by timestamp, no need to sort again
+             let createdAt = messages.first!.timestamp
+             let lastUpdatedAt = messages.last!.timestamp
+             let isChatStarred = messages.contains { $0.isStarred }
+             var chat = Chat(id: chatId, messages: messages, createdAt: createdAt, lastUpdatedAt: lastUpdatedAt, isStarred: isChatStarred)
+             // Regenerate title (consistent with ChatViewModel logic)
+             if let firstUserMsg = messages.first(where: { $0.role == .user }) {
+                  chat.title = String(firstUserMsg.content.prefix(30)) + (firstUserMsg.content.count > 30 ? "..." : "")
+             } else {
+                  chat.title = "Chat \(chatId.uuidString.prefix(4))..."
+             }
+             chats[chatId] = chat
+         }
+         print("Loaded and reconstructed \(chats.count) chats from DB messages.")
+         return chats
+     }
 
      // Find similar chat messages (used for RAG) - Keep async
      func findSimilarChatMessages(to queryVector: [Float], limit: Int = 5) async throws -> [ContextItem] {
          guard !queryVector.isEmpty else { return [] }
          guard queryVector.count == self.embeddingDimension else { throw DatabaseError.dimensionMismatch(expected: self.embeddingDimension, actual: queryVector.count) }
-         guard let queryJSON = embeddingToJson(queryVector) else { throw DatabaseError.embeddingGenerationFailed("Failed to convert query vector to JSON.") }
+         guard let json = embeddingToJson(queryVector) else { throw DatabaseError.embeddingGenerationFailed("Embedding JSON failed") }
+
+         // LEARNING (Reference App): Correct parameter usage for vector_top_k and vector_distance_cos
          let sql = """
-             SELECT M.id, M.chatId, M.role, M.content, M.timestamp, M.isStarred,
-                    vector_distance_cos(M.embedding, vector32(?)) AS distance
-             FROM ChatMessages AS M JOIN vector_top_k('chat_embedding_idx', vector32(?), ?) AS V ON M.rowid = V.id
-             WHERE M.embedding IS NOT NULL ORDER BY distance ASC;
+             SELECT M.id, M.chatId, M.role, M.content, M.timestamp, M.isStarred
+             FROM ChatMessages AS M
+             JOIN vector_top_k('chat_embedding_idx', vector32(?), ?) AS V
+               ON M.rowid = V.id
+             WHERE M.embedding IS NOT NULL
+             ORDER BY vector_distance_cos(M.embedding, vector32(?)) ASC;
+             -- Removed LIMIT ? here, handled by vector_top_k
              """
-         let params: [Value] = [.text(queryJSON), .text(queryJSON), .integer(Int64(limit))]
+         // Parameters for vector_top_k: index name (string - handled in SQL), query vector (text), K (integer)
+         // Parameter for vector_distance_cos: query vector (text)
+         let params: [Value] = [
+             .text(json),         // For vector_top_k query_vector
+             .integer(Int64(limit)), // For vector_top_k K
+             .text(json)          // For vector_distance_cos query_vector
+         ]
          print("[DB Search] Executing ChatMessages search for RAG...")
-          // Use synchronous query, but keep function async for caller convenience
-          let rows = try self.connection.query(sql, params)
-          var results: [ContextItem] = []
-          for row in rows {
-              guard let idStr = try? row.getString(0), let id = UUID(uuidString: idStr),
-                    let chatIdStr = try? row.getString(1), let chatId = UUID(uuidString: chatIdStr),
-                    let roleStr = try? row.getString(2),
-                    let content = try? row.getString(3),
-                    let timestampInt = try? row.getInt(4),
-                    let isStarredInt = try? row.getInt(5)
-              else { print("Warning: Failed decode ChatMessage row for RAG."); continue }
-              let timestamp = Date(timeIntervalSince1970: TimeInterval(timestampInt))
-              let prefix = (roleStr == "user") ? "User" : "AI"
-              let contextItem = ContextItem(id: id, text: "\(prefix): \(content)", sourceType: .chatMessage, date: timestamp, isStarred: isStarredInt == 1, relatedChatId: chatId)
-              results.append(contextItem)
-          }
-          print("[DB Search] ChatMessages RAG search successful. Found \(results.count) context items.")
-          return results
-    }
+         let rows = try self.connection.query(sql, params)
+         var items: [ContextItem] = []
+
+         // LEARNING (Reference App): Iterate over rows, don't assume other access patterns work reliably.
+         for row in rows {
+               // LEARNING (Reference App): Use explicit Int32 indices for column access.
+               guard let idStr = try? row.getString(Int32(0)), let id = UUID(uuidString: idStr),
+                     let chatIdStr = try? row.getString(Int32(1)), let chatId = UUID(uuidString: chatIdStr),
+                     let roleStr = try? row.getString(Int32(2)),
+                     let content = try? row.getString(Int32(3)),
+                     let timestampInt = try? row.getInt(Int32(4)),
+                     let isStarredInt = try? row.getInt(Int32(5))
+               else { print("Warning: Failed decode ChatMessage row for RAG."); continue }
+               let timestamp = Date(timeIntervalSince1970: TimeInterval(timestampInt))
+               // Use role enum directly for prefix for consistency
+               let prefix = (MessageRole(rawValue: roleStr) == .user) ? "User" : "AI"
+
+             let contextItem = ContextItem(
+                 id: id,
+                 text: "\(prefix): \(content)", // Include prefix
+                 sourceType: .chatMessage,
+                 date: timestamp,
+                 isStarred: isStarredInt == 1,
+                 relatedChatId: chatId
+             )
+             items.append(contextItem)
+         }
+         print("[DB Search] ChatMessages RAG search successful. Found \(items.count) context items.")
+         return items
+     }
 
 
      // MARK: - Raw Value Operations (for Analysis)
@@ -287,17 +358,14 @@ class DatabaseService: ObservableObject {
      // Save raw values - Synchronous
     func saveRawValues(values: [String: Double], for date: Date) throws {
         let dateInt = dateToInt(date)
-        print("[DB-RawValues] Saving \(values.count) values for date \(dateInt)...")
+        print("[DB-RawValues] Saving \(values.count) values for date \(dateInt)...") // Keep log
         let sql = "INSERT OR REPLACE INTO RawValues (date, category, value) VALUES (?, ?, ?);"
-        for (category, value) in values {
-            let params: [Value] = [
-                .integer(Int64(dateInt)),
-                .text(category),
-                .real(value)
-            ]
+        for (cat, val) in values {
+            let params: [Value] = [.integer(Int64(dateInt)), .text(cat), .real(val)]
+            // Assign to _ to silence unused result warning
             _ = try connection.execute(sql, params)
         }
-        print("✅ [DB-RawValues] Saved values for date \(dateInt).")
+         print("✅ [DB-RawValues] Saved values for date \(dateInt).") // Keep log
     }
 
      // Fetch raw values for a specific date - Synchronous
@@ -306,77 +374,140 @@ class DatabaseService: ObservableObject {
          let sql = "SELECT category, value FROM RawValues WHERE date = ?;"
          let params: [Value] = [.integer(Int64(dateInt))]
          let rows = try connection.query(sql, params)
-         var results: [String: Double] = [:]
+         var dict: [String: Double] = [:]
+
+         // LEARNING (Reference App): Iterate over rows.
          for row in rows {
-             guard let category = try? row.getString(0), let value = try? row.getDouble(1) else {
-                 print("⚠️ [DB-RawValues] Failed to decode row for date \(dateInt).")
-                 continue
+              // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             if let cat = try? row.getString(Int32(0)), let val = try? row.getDouble(Int32(1)) {
+                 dict[cat] = val
+             } else {
+                  print("⚠️ [DB-RawValues] Failed to decode row for date \(dateInt).")
              }
-             results[category] = value
          }
-         print("[DB-RawValues] Fetched \(results.count) values for date \(dateInt).")
-         return results
+         print("[DB-RawValues] Fetched \(dict.count) values for date \(dateInt).") // Keep log
+         return dict
      }
 
      // Fetch raw values for a range of dates - Synchronous
      func fetchRawValues(forDates dates: [Date]) throws -> [Date: [String: Double]] {
          guard !dates.isEmpty else { return [:] }
          let dateInts = dates.map { dateToInt($0) }
-         let placeholders = Array(repeating: "?", count: dateInts.count).joined(separator: ",")
-         let sql = "SELECT date, category, value FROM RawValues WHERE date IN (\(placeholders)) ORDER BY date DESC;"
+         let placeholders = dateInts.map { _ in "?" }.joined(separator: ",")
+         let sql = "SELECT date, category, value FROM RawValues WHERE date IN (\(placeholders)) ORDER BY date DESC;" // Keep ORDER BY
          let params: [Value] = dateInts.map { .integer(Int64($0)) }
-         return results
+         print("[DB-RawValues] Fetching values for dates: \(dateInts)...") // Keep log
+         let rows = try connection.query(sql, params)
+         var dict: [Date: [String: Double]] = [:]
+
+         // LEARNING (Reference App): Iterate over rows.
+         for row in rows {
+             // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             if let d = try? row.getInt(Int32(0)),
+                let cat = try? row.getString(Int32(1)),
+                let val = try? row.getDouble(Int32(2)),
+                let date = intToDate(Int(d)) {
+                 dict[date, default: [:]][cat] = val
+             } else {
+                  print("⚠️ [DB-RawValues] Failed to decode row in multi-date fetch.")
+             }
+         }
+          print("[DB-RawValues] Fetched values for \(dict.count) dates.") // Keep log
+         return dict
      }
 
     // Fetch the latest raw values and the date they correspond to - Synchronous
     func fetchLatestRawValuesAndDate() throws -> (date: Date, values: [String: Double])? {
-        // Find the latest date present in the RawValues table
-        let latestDateSql = "SELECT MAX(date) FROM RawValues;"
-        let dateRows = try connection.query(latestDateSql)
+        let sql = "SELECT MAX(date) FROM RawValues;"
+        let dateRows = try connection.query(sql)
 
-        // Use flatMap for safer optional chaining and extraction
-        guard let latestDateInt = try dateRows.first(where: { _ in true })?.getOptionalInt(0) else {
-            // No data in the table yet OR Max(date) returned NULL
-            print("[DB-RawValues] No latest date found in RawValues.")
+        // LEARNING (Reference App): Use precise pattern: get .first, then try? getInt(Int32(0))
+        // This pattern was causing issues, reverting to iteration.
+        var latestDateInt64: Int64? = nil
+        for row in dateRows {
+            if let maxVal = try? row.getInt(Int32(0)) {
+                latestDateInt64 = Int64(maxVal)
+            } else {
+                print("[DB-RawValues] MAX(date) query returned NULL or failed to extract Int64.")
+            }
+            break // Since MAX() returns at most one row
+        }
+
+        guard let unwrappedLatestDateInt64 = latestDateInt64 else {
+            print("[DB-RawValues] No latest date found (query returned no rows or NULL value).")
             return nil
         }
+
+        // Convert Int64 -> Int for Date helper
+        let latestDateInt = Int(unwrappedLatestDateInt64)
 
         // Convert the integer date back to a Date object
-        guard let latestDate = intToDate(Int(latestDateInt)) else {
-            print("⚠️ [DB-RawValues] Failed to convert latest date int \(latestDateInt) back to Date.")
-            // This case should ideally not happen if latestDateInt is valid
+        guard let date = intToDate(latestDateInt) else {
+             print("⚠️ [DB-RawValues] Could not parse dateInt \(latestDateInt).")
             return nil
         }
 
-        // Fetch all values for that latest date
-        let valuesSql = "SELECT category, value FROM RawValues WHERE date = ?;"
-        let params: [Value] = [.integer(latestDateInt)]
-        let valueRows = try connection.query(valuesSql, params)
+         // Fetch values for the found date
+         let valsSql = "SELECT category, value FROM RawValues WHERE date = ?;"
+         // Pass the unwrapped Int64 directly - matching reference app pattern
+         let params: [Value] = [.integer(unwrappedLatestDateInt64)]
+         let valRows = try connection.query(valsSql, params)
+         var dict: [String: Double] = [:]
 
-        var results: [String: Double] = [:]
-        for row in valueRows {
-            guard let category = try? row.getString(0), let value = try? row.getDouble(1) else {
-                print("⚠️ [DB-RawValues] Failed to decode row for latest date \(latestDateInt).")
-                continue // Skip this row but continue processing others
+        // LEARNING (Reference App): Iterate over rows.
+        for vr in valRows {
+            // LEARNING (Reference App): Use explicit Int32 indices for column access.
+            if let cat = try? vr.getString(Int32(0)), let v = try? vr.getDouble(Int32(1)) {
+                dict[cat] = v
+            } else {
+                print("⚠️ [DB-RawValues] Failed to decode category/value row for date \(latestDateInt).")
             }
-            results[category] = value
         }
 
-        // Check if results are empty, which shouldn't happen if a date was found, but good safety check
-        if results.isEmpty && latestDateInt != 0 {
-             print("⚠️ [DB-RawValues] Found latest date \(latestDateInt) but no values associated?")
-             // Decide how to handle: return nil or empty results? Returning nil seems safer.
-             return nil
+         // Check if results are empty (could happen if values were deleted for the max date)
+        if dict.isEmpty && latestDateInt != 0 {
+            print("⚠️ [DB-RawValues] Found latest date \(latestDateInt) but no values associated?")
+            // Return nil as the state is inconsistent
+            return nil
         }
 
-        print("[DB-RawValues] Fetched latest values (\(results.count)) for date \(latestDate.formatted(date: .short, time: .omitted)).")
-        return (date: latestDate, values: results)
+        // Log via DateFormatter
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short // Use .short as requested
+        formatter.timeStyle = .none
+        let dateStr = formatter.string(from: date)
+        print("[DB-RawValues] Fetched \(dict.count) values for date \(dateStr).")
+
+        return (date, dict)
     }
 
 
      // MARK: - Score & Priority Operations (for Analysis)
 
      // Save daily scores - Synchronous
+     func saveScores(date: Date, displayScore: Int, energyScore: Double, financeScore: Double, homeScore: Double) throws {
+         let dateInt = dateToInt(date)
+         let sql = """
+         INSERT OR REPLACE INTO Scores (date, display_score, energy_score, finance_score, home_score)
+         VALUES (?, ?, ?, ?, ?);
+         """
+         let params: [Value] = [.integer(Int64(dateInt)), .integer(Int64(displayScore)), .real(energyScore), .real(financeScore), .real(homeScore)]
+         // Assign to _ to silence unused result warning
+         _ = try connection.execute(sql, params)
+         print("✅ [DB-Scores] Saved scores for date \(dateInt).") // Keep original log format
+     }
+
+     // Save daily priority node - Synchronous
+     func savePriorityNode(date: Date, node: String) throws {
+         let dateInt = dateToInt(date)
+         let sql = "INSERT OR REPLACE INTO PriorityNodes (date, node) VALUES (?, ?);"
+         let params: [Value] = [.integer(Int64(dateInt)), .text(node)]
+         // Assign to _ to silence unused result warning
+         _ = try connection.execute(sql, params)
+         print("✅ [DB-Priority] Saved priority node '\(node)' for date \(dateInt).") // Keep original log format
+     }
+
+     // Fetch the latest display score and priority node - Synchronous
      func getLatestDisplayScoreAndPriority() throws -> (displayScore: Int?, priorityNode: String?) {
          let scoresSql = "SELECT display_score FROM Scores ORDER BY date DESC LIMIT 1;"
          let prioritySql = "SELECT node FROM PriorityNodes ORDER BY date DESC LIMIT 1;"
@@ -384,77 +515,49 @@ class DatabaseService: ObservableObject {
          let scoreRows = try connection.query(scoresSql)
          let priorityRows = try connection.query(prioritySql)
 
-         let scoreRow = scoreRows.first(where: { _ in true })
-         let priorityRow = priorityRows.first(where: { _ in true })
+         var displayScore: Int? = nil
+         var priorityNode: String? = nil
 
-         // Correct optional mapping using flatMap and try?
-         let displayScore: Int? = scoreRow.flatMap { row -> Int? in
-             guard let int64Value = try? row.getInt(0) else { return nil }
-             return Int(int64Value) // Convert Int64 to Int
-         }
-         let priorityNode: String? = priorityRow.flatMap { row -> String? in
-             try? row.getString(0) // Safely try to get String?
+         // Iterate for score (max 1 row due to LIMIT 1)
+         // LEARNING (Reference App): Iterate even for LIMIT 1 queries.
+         for row in scoreRows {
+             // LEARNING (Reference App): Use explicit Int32 index.
+             if let scoreInt64 = try? row.getInt(Int32(0)) {
+                 displayScore = Int(scoreInt64)
+             }
+             break // Exit loop after processing the first (only) row
          }
 
+         // Iterate for priority (max 1 row due to LIMIT 1)
+         // LEARNING (Reference App): Iterate even for LIMIT 1 queries.
+         for row in priorityRows {
+             // LEARNING (Reference App): Use explicit Int32 index.
+             priorityNode = try? row.getString(Int32(0))
+             break // Exit loop after processing the first (only) row
+         }
+
+         // Log the fetched values (or defaults)
          print("[DB-Read] Fetched latest - Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A")")
+
          return (displayScore, priorityNode)
      }
 
-     // Fetch the score and priority node for the previous day - Synchronous
-     func getPreviousDayContext() throws -> (date: Date, displayScore: Int?, priorityNode: String?)? {
-         let calendar = Calendar.current
-         let today = calendar.startOfDay(for: Date())
-         guard let previousDay = calendar.date(byAdding: .day, value: -1, to: today) else {
-             print("[DB-Read] Could not calculate previous day.")
-             return nil
-         }
-         let previousDayInt = dateToInt(previousDay)
 
-         let scoresSql = "SELECT display_score FROM Scores WHERE date = ? LIMIT 1;"
-         let prioritySql = "SELECT node FROM PriorityNodes WHERE date = ? LIMIT 1;"
-         let params: [Value] = [.integer(Int64(previousDayInt))]
+    // MARK: - Helper Functions
 
-         let scoreRows = try connection.query(scoresSql, params)
-         let priorityRows = try connection.query(prioritySql, params)
+    private func dateToInt(_ date: Date) -> Int {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd"
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.timeZone = TimeZone(secondsFromGMT: 0)
+        return Int(fmt.string(from: date)) ?? 0
+    }
 
-         let scoreRow = scoreRows.first(where: { _ in true })
-         let priorityRow = priorityRows.first(where: { _ in true })
-
-         let displayScore: Int? = scoreRow.flatMap { row -> Int? in
-             guard let int64Value = try? row.getInt(0) else { return nil }
-             return Int(int64Value)
-         }
-         let priorityNode: String? = priorityRow.flatMap { row -> String? in
-             try? row.getString(0)
-         }
-
-         // Only return if we found at least one piece of data for the previous day
-         if displayScore != nil || priorityNode != nil {
-             print("[DB-Read] Fetched previous day (\(previousDayInt)) - Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A")")
-             return (date: previousDay, displayScore: displayScore, priorityNode: priorityNode)
-         } else {
-              print("[DB-Read] No score or priority found for previous day (\(previousDayInt)).")
-              return nil
-         }
-     }
-
-
-      // Helper to convert Date to YYYYMMDD Int
-      private func dateToInt(_ date: Date) -> Int {
-          let formatter = DateFormatter()
-          formatter.dateFormat = "yyyyMMdd"
-          formatter.locale = Locale(identifier: "en_US_POSIX")
-          formatter.timeZone = TimeZone(secondsFromGMT: 0)
-          return Int(formatter.string(from: date)) ?? 0
-      }
-
-      // Helper to convert YYYYMMDD Int back to Date
-      private func intToDate(_ intDate: Int) -> Date? {
-           let formatter = DateFormatter()
-           formatter.dateFormat = "yyyyMMdd"
-           formatter.locale = Locale(identifier: "en_US_POSIX")
-           formatter.timeZone = TimeZone(secondsFromGMT: 0)
-           return formatter.date(from: String(intDate))
-      }
-
+    private func intToDate(_ intDate: Int) -> Date? {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd"
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.timeZone = TimeZone(secondsFromGMT: 0)
+        return fmt.date(from: String(intDate))
+    }
 }
