@@ -3,6 +3,7 @@ import SwiftUI
 struct TabNavigationView: View {
     @Binding var currentView: AppView
     var onSettingsClick: () -> Void
+    var onNewChatClick: () -> Void // Add callback for new chat
     @EnvironmentObject private var themeManager: ThemeManager
     // Selected: Original 54 * 0.75 = 40.5 -> 41
     // Unselected: Half of new selected = 40.5 / 2 = 20.25 -> 20
@@ -19,7 +20,7 @@ struct TabNavigationView: View {
                 ForEach(0..<2) { index in
                     let isActive = (index == 0 && currentView == .journal) || (index == 1 && currentView == .loop)
                     let targetView: AppView = index == 0 ? .journal : .loop
-                    
+
                     Capsule()
                         .fill(isActive ? themeManager.accentColor : Color.gray.opacity(0.3))
                         .frame(width: isActive ? selectedNavBarWidth : unselectedNavBarWidth, height: navBarHeight)
@@ -64,16 +65,37 @@ struct TabNavigationView: View {
 
                 Spacer() // Pushes title towards center/left
 
-                // This helps keep the title visually centered.
-                Rectangle()
-                    .fill(Color.clear)
-                    // Match new larger settings button frame size
-                    .frame(width: 38, height: 38)
-                    .padding(.trailing) // Keep padding consistent
+                // New Chat Button (Mirroring Settings Button)
+                Button(action: {
+                    // Call the new callback
+                    onNewChatClick()
+                }) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 22)) // Adjust size as needed
+                        .foregroundColor(themeManager.accentColor)
+                        // Match new larger settings button frame size
+                        .frame(width: 38, height: 38)
+                }
+                 .padding(.trailing) // Keep padding consistent
+                 .offset(y: 6) // Apply vertical offset consistent with settings icon
 
             }
-            
+
         }
         // Overall top positioning handled by ContentView
+    }
+}
+
+// Preview needs to be updated to provide the new callback
+struct TabNavigationView_Previews: PreviewProvider {
+    static var previews: some View {
+        TabNavigationView(
+            currentView: .constant(.journal),
+            onSettingsClick: { print("Settings Tapped") },
+            onNewChatClick: { print("New Chat Tapped") } // Provide dummy action
+        )
+        .environmentObject(ThemeManager())
+        .padding()
+        .background(Color(UIColor.systemGray6))
     }
 }
