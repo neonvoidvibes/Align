@@ -134,97 +134,87 @@ class ChatViewModel: ObservableObject {
 
         // Retrieve RAG context, fetch score/priority, call LLM
         Task {
-             // --- TEMPORARILY COMMENT OUT CONTEXT FETCHING ---
-             /*
-             var ragContext = ""
+             // --- Retrieve RAG context (Using second opinion's snippet) ---
+             var ragContext = "" // Will be built as a single String
              let queryEmb = await generateEmbedding(for: text)
              if let emb = queryEmb {
                  do {
                      let items = try await databaseService.findSimilarChatMessages(to: emb, limit: 5)
-                     // Make header clearer about RAG source
-                     var ctx = ["Context from Past Entries (most relevant first):"]
-                     for item in items {
-                         let filtered = filterPII(text: item.text)
-                         // Ensure (STARRED) is prominent if present
-                         let starredMarker = item.isStarred ? " **(STARRED)**" : ""
-                         let meta = "(\(item.sourceType.rawValue), \(item.date.formatted(date: .numeric, time: .shortened))\(starredMarker))"
-                         ctx.append("- \(meta): \(filtered)") // Add marker to metadata
-                     }
-                     if items.count > 0 { // Only add context if items were found
-                         ragContext = ctx.joined(separator: "\n")
+
+                     // Build ragContext as a single String if items exist:
+                     if !items.isEmpty {
+                         var contextLines = [String]() // Temporary array for lines
+                         contextLines.append("Context from Past Entries (most relevant first):")
+                         for item in items {
+                             let filtered = filterPII(text: item.text)
+                             let starred = item.isStarred ? " **(STARRED)**" : ""
+                             let meta = "(\(item.sourceType.rawValue), \(item.date.formatted(date: .numeric, time: .shortened))\(starred))"
+                             contextLines.append("- \(meta): \(filtered)")
+                         }
+                         ragContext = contextLines.joined(separator: "\n") // Assign joined string
+                         print("[ChatViewModel] RAG search successful. Found \(items.count) similar entries.")
                      } else {
-                          print("[ChatViewModel] RAG search successful, but no similar past entries found.")
+                         print("[ChatViewModel] RAG search successful, but no similar past entries found.")
+                         // ragContext remains ""
                      }
                  } catch {
                      print("‼️ [ChatViewModel] RAG retrieval failed: \(error)")
+                     // ragContext remains ""
                  }
              }
-
-             var scoreCtx = ""
-             do {
-                 let (_, _, p) = try databaseService.getLatestDisplayScoreAndPriority()
-                 scoreCtx = p
-                   .map { "Current Priority: \($0)." }
-                   ?? "Current Priority: Not set."
-             } catch {
-                 print("‼️ [ChatViewModel] Error fetching score/priority: \(error)")
-             }
-             */
-             // --- END TEMP COMMENT OUT ---
-
+             // --- End RAG Context Fetching ---
 
              let systemPrompt = SystemPrompts.chatAgentPrompt
-              // Combine RAG context and Current Priority context
-             // Explicitly type as String to help compiler
-             // let combined: String = [ragContext, scoreCtx].filter { !$0.isEmpty }.joined(separator: "\n---\n") // TEMP COMMENT OUT
-             let combined: String? = nil // <-- TEMPORARILY SET TO NIL
+
+             // Make combinedContext explicitly String?
+             // NOTE: Score/Priority context (`scoreCtx`) is currently not fetched here, only RAG.
+             let combinedContext: String? = ragContext.isEmpty ? nil : ragContext
 
              // --- ADD TYPE PRINTING ---
-             print("[ChatViewModel] Type of 'combined' before call: \(type(of: combined))")
+             print("[ChatViewModel] Type of 'combinedContext' before call: \(type(of: combinedContext))")
              // --- END TYPE PRINTING ---
 
-             print("[ChatViewModel] Combined Context for LLM:\n\(combined ?? "nil")") // Log combined context
+             print("[ChatViewModel] Combined Context for LLM:\n\(combinedContext ?? "nil")") // Log combined context
 
              do {
-                 // Correctly check if combined is non-nil and non-empty before passing
-                 let contextToSend = (combined ?? "").isEmpty ? nil : combined
+                 // Pass combinedContext (String?) directly to the LLM call
                  let reply = try await llmService.generateChatResponse(
-                    systemPrompt: systemPrompt,
-                    userMessage: text, // Send original user message
-                    context: contextToSend // Pass the potentially nil context
-                )
-                let assistantMsg = ChatMessage(role: .assistant, content: reply, timestamp: Date())
-                self.messages.append(assistantMsg)
-                self.currentChat?.messages.append(assistantMsg)
-                self.currentChat?.lastUpdatedAt = assistantMsg.timestamp
-                if let chat = self.currentChat {
-                    self.chats[chat.id] = chat
-                }
-                self.isTyping = false
+                     systemPrompt: systemPrompt,
+                     userMessage: text,
+                     context: combinedContext // Pass the String?
+                 )
+                 let assistantMsg = ChatMessage(role: .assistant, content: reply, timestamp: Date())
+                 self.messages.append(assistantMsg)
+                 self.currentChat?.messages.append(assistantMsg)
+                 self.currentChat?.lastUpdatedAt = assistantMsg.timestamp
+                 if let chat = self.currentChat {
+                     self.chats[chat.id] = chat
+                 }
+                 self.isTyping = false
 
-                // Save assistant message
-                Task.detached(priority: .utility) { [weak self] in
-                    guard let self = self else { return }
-                    let emb = await generateEmbedding(for: assistantMsg.content)
-                    do {
-                        try await self.databaseService.saveChatMessage(assistantMsg, chatId: chatId, embedding: emb)
-                        print("[ChatViewModel] Assistant message saved.")
-                    } catch {
-                        print("‼️ [ChatViewModel] Error saving assistant message: \(error)")
-                    }
-                }
-            } catch {
-                print("‼️ [ChatViewModel] LLM error: \(error)")
-                let errorMsg = ChatMessage(
-                    role: .assistant,
-                    content: "Sorry, I encountered an error. Please try again. (\(error.localizedDescription.prefix(100))...)",
-                    timestamp: Date(),
-                    isStarred: true // Optionally star error messages
-                )
-                self.messages.append(errorMsg)
-                self.isTyping = false
-            }
-        }
+                 // Save assistant message
+                 Task.detached(priority: .utility) { [weak self] in
+                     guard let self = self else { return }
+                     let emb = await generateEmbedding(for: assistantMsg.content)
+                     do {
+                         try await self.databaseService.saveChatMessage(assistantMsg, chatId: chatId, embedding: emb)
+                         print("[ChatViewModel] Assistant message saved.")
+                     } catch {
+                         print("‼️ [ChatViewModel] Error saving assistant message: \(error)")
+                     }
+                 }
+             } catch {
+                 print("‼️ [ChatViewModel] LLM error: \(error)")
+                 let errorMsg = ChatMessage(
+                     role: .assistant,
+                     content: "Sorry, I encountered an error. Please try again. (\(error.localizedDescription.prefix(100))...)",
+                     timestamp: Date(),
+                     isStarred: true // Optionally star error messages
+                 )
+                 self.messages.append(errorMsg)
+                 self.isTyping = false
+             }
+         }
     }
 
     func deleteMessage(_ message: ChatMessage) {

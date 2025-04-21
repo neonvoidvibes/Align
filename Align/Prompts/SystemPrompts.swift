@@ -87,21 +87,23 @@ struct SystemPrompts {
         ```
 
         Guidelines:
-        1.  **Focus on Change:** Analyze the user message for explicit mentions or strong implications of activity or change related to the categories compared to yesterday's values.
-        2.  **Infer Current Value:** For categories where the message indicates activity or change, estimate a reasonable *current raw value* for today.
-            *   Use the provided category units/scales: Time in MINUTES (Sleep, Training, Nurture Home), counts (HealthyFood, Supplements), 0.0-1.0 rating (IncreaseFocus, MentalStability), numeric amounts/counts (ExecuteTasks, GenerateIncome, Repay Debt).
-            *   If the message suggests an increase/improvement (e.g., "slept better", "did more tasks"), estimate a higher value than yesterday's.
-            *   If the message suggests a decrease/worsening (e.g., "felt distracted", "didn't exercise"), estimate a lower value.
-            *   If the message provides an explicit number (e.g., "ran 30 minutes", "ate 2 healthy meals", "paid $50"), use that number directly.
-            *   If the message mentions activity qualitatively (e.g., "worked on project", "tidied up"), use a reasonable default (like 1.0 for tasks/finance/home, 0.5 for ratings) *if* it represents a change from yesterday or yesterday was zero.
-        3.  **Omit Unmentioned:** If a category is *not* mentioned or implied in the current message, **do not include it** in your response. The system will handle decay for unmentioned categories.
-        4.  **Output Format:** Respond ONLY with a single valid JSON object. Keys are the exact category names. Values are the inferred *current numeric values* (integer or float) for today based on your inference.
+        1.  **Strictly Identify Completed Actions:** Analyze the message ONLY for explicit statements confirming that the user *performed* an action or experienced a state *today* or *since the last update*. Look for past tense verbs (e.g., "I trained", "I slept", "I paid") or clear indications of completion.
+        2.  **Ignore Questions, Plans, and Hypotheticals:** DO NOT infer values from questions (e.g., "How much should I exercise?"), future plans (e.g., "I plan to run tomorrow"), discussions about activities (e.g., "Thinking about my workout routine"), or general statements that don't confirm an action was done (e.g., "Exercise is important").
+        3.  **Infer Current Value (Only if Action is Confirmed):** If a completed action for a category is confirmed:
+            *   Use the category units/scales: Time in MINUTES (Sleep, Training, Nurture Home), counts (HealthyFood, Supplements), 0.0-1.0 rating (IncreaseFocus, MentalStability), numeric amounts/counts (ExecuteTasks, GenerateIncome, Repay Debt).
+            *   If an explicit number is given (e.g., "ran 30 minutes", "paid $50", "ate 2 healthy meals"), use that number directly for the corresponding category.
+            *   If a completed action is mentioned qualitatively (e.g., "worked on the project", "tidied the house", "took my supplements"), use a reasonable default only if it represents a change from yesterday OR yesterday's value was zero (e.g., `{"Execute Tasks": 1.0}`, `{"Nurture Home": 1.0}`, `{"Supplements": 1.0}`). Use ratings like 0.5 for qualitative focus/stability mentions if they confirm a state (e.g., "felt focused" -> `{"Increase Focus": 0.5}`).
+            *   If the message confirms *lack* of activity (e.g., "skipped my workout", "didn't sleep well"), infer 0 or a low value (e.g., `{"Training": 0}`, `{"Sleep": 300}`).
+        4.  **Omit Unconfirmed Categories:** If a category's activity is *not explicitly confirmed* as completed in the message according to rule #1 and #2, **DO NOT include it** in the response. The system handles decay for omitted categories.
+        5.  **Output Format:** Respond ONLY with a single valid JSON object. Keys are the exact category names from the list. Values are the inferred *current numeric values* (integer or float) based *only* on confirmed, completed actions/states.
 
-        Example Inference:
-        - Yesterday: `{"Sleep": 360, "Training": 0}` Message: "Slept much better last night, felt great. Skipped my run though." -> Response: `{"Sleep": 480, "Training": 0}`
-        - Yesterday: `{"Execute Tasks": 1, "Increase Focus": 0.6}` Message: "Got 3 important things done today, felt really sharp." -> Response: `{"Execute Tasks": 3, "Increase Focus": 0.9}`
-        - Yesterday: `{"Nurture Home": 0}` Message: "Cleaned the kitchen." -> Response: `{"Nurture Home": 1.0}` (using qualitative default as it's a change from 0)
-        - Yesterday: `{"Training": 30}` Message: "Just relaxed today." -> Response: `{}` (Training wasn't mentioned as happening today, so omit it).
+        Example Inference (Stricter):
+        - Yesterday: `{"Sleep": 360, "Training": 0}` Message: "Slept much better last night, felt great. Skipped my run though." -> Response: `{"Sleep": 480, "Training": 0}` (Sleep confirmed better, Training confirmed skipped)
+        - Yesterday: `{"Execute Tasks": 1}` Message: "Got 3 important things done today." -> Response: `{"Execute Tasks": 3}` (Completed action confirmed)
+        - Yesterday: `{"Training": 30}` Message: "How much exercise should I do?" -> Response: `{}` (Question, no action confirmed)
+        - Yesterday: `{"Training": 0}` Message: "Thinking about going for a 30 min run." -> Response: `{}` (Plan/thought, no action confirmed)
+        - Yesterday: `{"Training": 0}` Message: "Did a 30 min run today." -> Response: `{"Training": 30.0}` (Completed action confirmed)
+        - Yesterday: `{"Supplements": 0}` Message: "Took my supplements." -> Response: `{"Supplements": 1.0}` (Qualitative completed action, using default count)
 
         JSON Response Format:
         {
