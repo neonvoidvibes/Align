@@ -108,10 +108,11 @@ actor AnalysisService {
             print("✅ [AnalysisService] Saved today's raw values: \(todayRawValues)")
 
             // 6. Calculate Scores based on 7-day window
-            // Format date into string first
+            // 6. Calculate Scores based on 7-day window, passing today's values directly
             let todayScoreString = today.formatted(date: .abbreviated, time: .omitted)
             print("[AnalysisService] Calculating scores based on 7-day window ending \(todayScoreString)...") // Use .abbreviated
-            let (displayScore, energyScore, financeScore, homeScore) = await calculateScores(for: today)
+            // Pass todayRawValues to calculateScores
+            let (displayScore, energyScore, financeScore, homeScore) = await calculateScores(for: today, todayValues: todayRawValues)
             print("[AnalysisService] Calculated Scores - Display: \(displayScore), E: \(energyScore), F: \(financeScore), H: \(homeScore)")
 
             // 7. Determine Priority Node
@@ -161,40 +162,55 @@ actor AnalysisService {
         }
     }
 
-    // Helper to calculate scores
-    private func calculateScores(for date: Date) async -> (displayScore: Int, energyScore: Double, financeScore: Double, homeScore: Double) {
+    // Helper to calculate scores, now accepting today's values explicitly
+    private func calculateScores(for date: Date, todayValues: [String: Double]) async -> (displayScore: Int, energyScore: Double, financeScore: Double, homeScore: Double) {
         var categoryScores: [String: Double] = [:]
         let calendar = Calendar.current
+        let daysToFetch = windowDays - 1 // Fetch only the days *before* today
 
         do {
-            // Fetch last W days of raw values for all categories
-            print("[AnalysisService-ScoreCalc] Fetching raw values for the last \(windowDays) days...")
-            let dateRange = (0..<windowDays).compactMap { i in
-                calendar.date(byAdding: .day, value: -i, to: date)
+            // Fetch raw values for the days *before* the target date
+            // Fix date formatting
+            print("[AnalysisService-ScoreCalc] Fetching raw values for the \(daysToFetch) days before \(date.formatted(date: .abbreviated, time: .omitted))...")
+            // Create range from 1 to daysToFetch (e.g., 1 to 6 for a 7-day window)
+            let dateRange = (1...daysToFetch).compactMap { i in
+                calendar.date(byAdding: .day, value: -i, to: date) // Days BEFORE date
             }
-            // Add await back as fetchRawValues(forDates:) is on MainActor DB service
-            let historicalRawValues = try await databaseService.fetchRawValues(forDates: dateRange)
-            print("[AnalysisService-ScoreCalc] Fetched \(historicalRawValues.count) days of raw values.")
 
-             // Calculate average and normalized score for each category
+            var combinedRawValues: [Date: [String: Double]] = [:]
+            if !dateRange.isEmpty {
+                 // Add await back as fetchRawValues(forDates:) is on MainActor DB service
+                 let historicalData = try await databaseService.fetchRawValues(forDates: dateRange)
+                 print("[AnalysisService-ScoreCalc] Fetched \(historicalData.count) historical days.")
+                 combinedRawValues = historicalData // Start with historical data
+            } else {
+                 print("[AnalysisService-ScoreCalc] No historical days to fetch (windowDays <= 1?).")
+            }
+
+             // Explicitly add today's values to the combined dictionary
+             combinedRawValues[date] = todayValues
+             print("[AnalysisService-ScoreCalc] Included today's values. Total days for calc: \(combinedRawValues.count)")
+
+             // --- Calculate average and normalized score using combinedRawValues ---
+             let fullDateRangeForAvg = (0..<windowDays).compactMap { i in // Generate the full date range again for averaging
+                calendar.date(byAdding: .day, value: -i, to: date)
+             }
+
              for category in nodeWeights.keys {
-                 // Removed unused sum and count variables
+                  // Declare valuesForAvg ONCE inside the category loop
                  var valuesForAvg: [Double] = []
 
-                 // Iterate through the dates in the window
-                 for day in dateRange {
-                     if let dayValues = historicalRawValues[day], let value = dayValues[category] {
+                 // Iterate through the full window range for averaging
+                 for day in fullDateRangeForAvg {
+                     // Look up value in the *combined* dictionary
+                     if let dayValues = combinedRawValues[day], let value = dayValues[category] {
                          valuesForAvg.append(value)
                      } else {
-                         // Handle missing day/category value (e.g., assume 0 or apply decay retroactively?)
-                         // Simplest: Treat missing as 0 for average calculation if within window
-                         // More complex: Could try to apply decay from the *last known* value before this day.
-                         // For now, treat missing day's data as 0 for simplicity, matching algorithm step 3b if no mention implies decay.
-                         // Fetching previous values guarantees *some* value exists due to decay logic in step 5.
-                         // If a day is missing entirely, assume 0.
+                         // If data for a day in the window is missing (even after combining), treat as 0
                          valuesForAvg.append(0.0)
                      }
                  }
+                 // REMOVED the duplicate declaration of valuesForAvg here
 
                  if !valuesForAvg.isEmpty {
                       let avgValue = valuesForAvg.reduce(0, +) / Double(valuesForAvg.count)
