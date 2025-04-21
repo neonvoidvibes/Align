@@ -13,14 +13,17 @@ struct ChatMessage: Identifiable, Codable, Equatable, Hashable {
     let content: String
     let timestamp: Date
     var isStarred: Bool // Added isStarred
+    var processed_for_analysis: Bool // Added analysis flag
 
-    // Initializer with default isStarred
-    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date = Date(), isStarred: Bool = false) {
+
+    // Initializer with default isStarred and processed_for_analysis
+    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date = Date(), isStarred: Bool = false, processed_for_analysis: Bool = false) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
         self.isStarred = isStarred
+        self.processed_for_analysis = processed_for_analysis // Initialize new flag
     }
 
     // Equatable conformance based on ID

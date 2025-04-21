@@ -28,17 +28,17 @@ struct ContentView: View {
     // State for Chat History Panel (Not implemented as panel yet)
     @State private var showChatHistory = false // Placeholder state if needed later
 
-    // Data manager needed for Node Info
-    @StateObject private var cycleData: CycleDataManager // Correctly declared before init
+    // Data manager needed for Node Info - Provided via init now
+     @ObservedObject var cycleData: CycleDataManager // Use ObservedObject as it's passed in
 
     // Initialize ChatViewModel and other StateObjects in init
-    init(databaseService: DatabaseService, llmService: LLMService) {
+    init(databaseService: DatabaseService, llmService: LLMService, cycleData: CycleDataManager) { // Add cycleData to init
         // Use _property = StateObject(wrappedValue: ...) syntax for StateObjects
         _databaseService = StateObject(wrappedValue: databaseService)
         self.llmService = llmService // Assign non-StateObject property directly
         _chatViewModel = StateObject(wrappedValue: ChatViewModel(databaseService: databaseService, llmService: llmService))
-        // cycleData is also a StateObject and needs init here if not assigned default value
-        _cycleData = StateObject(wrappedValue: CycleDataManager())
+         // Assign cycleData passed from App
+         self.cycleData = cycleData
     }
 
     // Computed property to determine if any modal/panel is showing
@@ -118,6 +118,7 @@ struct ContentView: View {
                          JournalView()
                     case .loop:
                          // Pass closure to CycleView to trigger NodeInfo presentation
+                          // CycleView now gets cycleData from the environment
                          CycleView(presentNodeInfo: { nodeId in
                              selectedNodeId = nodeId
                              withAnimation(.easeInOut(duration: 0.3)) {
@@ -214,9 +215,10 @@ struct ContentView: View {
                 }
 
             } // End ZStack
-            // Provide ChatViewModel and CycleData to the environment for child views within the ZStack
+             // Provide ChatViewModel to the environment for child views within the ZStack
             .environmentObject(chatViewModel)
-            .environmentObject(cycleData)
+             // CycleData is already provided by AlignApp's environment setup
+            // .environmentObject(cycleData) // Remove duplicate environment object
             // Animate the appearance/disappearance of conditional layers (Effect Overlay, Modals, Panels)
             .animation(.easeInOut(duration: 0.3), value: isModalOrPanelShowing) // Use combined state
 
@@ -226,16 +228,18 @@ struct ContentView: View {
 
 // Previews remain the same
 struct ContentView_Previews: PreviewProvider {
-    // Create instances of services for the preview
     @StateObject static var previewDbService = DatabaseService()
     static let previewLlmService = LLMService.shared // Use singleton for preview too
+     // Instantiate CycleDataManager with preview DB service
+     @StateObject static var previewCycleData = CycleDataManager(databaseService: previewDbService)
 
     static var previews: some View {
-        ContentView(databaseService: previewDbService, llmService: previewLlmService)
+         // Pass preview cycleData to ContentView initializer
+         ContentView(databaseService: previewDbService, llmService: previewLlmService, cycleData: previewCycleData)
             .environmentObject(AppState())
             .environmentObject(ThemeManager())
+             .environmentObject(previewCycleData) // Provide cycle data to environment too
             // Also provide db/llm service to environment if child views expect them there directly
             .environmentObject(previewDbService)
-            // .environmentObject(previewLlmService) // LLMService is usually accessed via .shared
     }
 }

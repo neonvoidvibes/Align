@@ -2,17 +2,20 @@ import Foundation
 import SwiftUI
 
 // Node weights according to updated requirements
+// Consider moving this to a shared configuration file/struct if used elsewhere (e.g., AnalysisService)
 let NODE_WEIGHTS: [String: Double] = [
-    // Core Levers (80% total)
-    "Boost Energy": 0.30,
-    "Repay Debt": 0.25,
-    "Nurture Home": 0.25,
-    // Energy Inputs (Adds to "Boost Energy", 30% total, 7.5% each)
+    // Core Levers (Total weight specified in algorithm affects normalization, not direct summation here)
+    "Boost Energy": 0.30, // Composite score weight
+    "Repay Debt": 0.25,   // Direct score weight
+    "Nurture Home": 0.25, // Direct score weight
+
+    // Energy Inputs (Contribute to Boost Energy composite score)
     "Training": 0.075,
     "Sleep": 0.075,
     "Healthy Food": 0.075,
     "Supplements": 0.075,
-    // Secondary Nodes (20% total)
+
+    // Secondary Nodes (Direct score weights)
     "Increase Focus": 0.05,
     "Execute Tasks": 0.05,
     "Generate Income": 0.05,
@@ -22,17 +25,18 @@ let NODE_WEIGHTS: [String: Double] = [
 struct FlowStep: Identifiable {
     let id: String
     let label: String
-    let isPriority: Bool
-    var score: Int
-    var change: Int
-    
+    let isPriority: Bool // May need re-evaluation based on single priority node logic
+    var score: Int // TODO: Needs update from analysis service
+    var change: Int // TODO: Needs update from analysis service
+
+    // Display label mapping remains useful
     var displayLabel: String {
         switch id {
         case "Boost Energy": return "Energy"
         case "Increase Focus": return "Focus"
-        case "Execute Tasks": return "Project"
+        case "Execute Tasks": return "Project" // Assuming "Execute Tasks" relates to project work
         case "Generate Income": return "Income"
-        case "Repay Debt": return "Finance"
+        case "Repay Debt": return "Finance" // Map Repay Debt to Finance display label
         case "Nurture Home": return "Home"
         case "Mental Stability": return "Mental"
         default: return label
@@ -43,195 +47,218 @@ struct FlowStep: Identifiable {
 struct EnergyInput: Identifiable {
     let id: String
     let label: String
-    var score: Int
+    var score: Int // TODO: Needs update from analysis service
 }
 
+// Priority struct now primarily used to format data for the PriorityCardView
 struct Priority: Identifiable {
-    let id: String
-    let node: String
-    let score: Int
-    let recommendation: String
+    let id: String // Keep identifiable
+    let node: String // The priority node name (e.g., "Boost Energy")
+    let score: Int // The total display score (associated with the priority card)
+    let recommendation: String // The action recommendation for the priority node
 }
 
+@MainActor // Ensure updates happen on the main thread
 class CycleDataManager: ObservableObject {
+    // Published properties reflecting the current state fetched from DB
     @Published var totalScore: Int = 0
-    @Published var flowSteps: [FlowStep] = []
-    @Published var energyInputs: [EnergyInput] = []
-    @Published var priorities: [Priority] = []
-    @Published var currentPriorityIndex: Int = 0
-    @Published var selectedNode: String? = nil
-    
-    init() {
-        loadMockData()
-        calculateTotalScore()
+    @Published var currentPriorityNode: String = "Boost Energy" // Default priority until loaded
+    @Published var currentPriorityRecommendation: String = "Loading recommendation..."
+
+    // Published array derived from the single priority node for the card view
+    @Published var priorities: [Priority] = [] // This will hold only the single current priority
+    @Published var currentPriorityIndex: Int = 0 // Always 0 as there's only one priority shown
+
+    // Internal structure for display, scores need real data hookup
+    @Published var flowSteps: [FlowStep] = [] // Keep for structure, score needs update from analysis
+    @Published var energyInputs: [EnergyInput] = [] // Keep for structure, score needs update from analysis
+
+    @Published var selectedNode: String? = nil // For NodeInfoView interaction
+
+    // Dependency
+    private let databaseService: DatabaseService
+
+    // Predefined recommendations mapped to node IDs
+    private let recommendations: [String: String] = [
+        "Boost Energy": "Improve your energy through better routines and recovery.",
+        "Repay Debt": "Set aside 30 minutes to review your budget and make a debt payment.",
+        "Nurture Home": "Spend quality time with your partner or create a calming space at home.",
+        // Add other nodes if they can become priorities, though algorithm implies only these 3
+        "Default": "Focus on improving this area."
+    ]
+
+
+    // Remove default value to prevent MainActor isolation error
+    init(databaseService: DatabaseService) {
+        self.databaseService = databaseService
+        print("[CycleDataManager] Initialized.")
+        setupInitialState() // Set up default structure
+        loadLatestData() // Load real data on init
     }
-    
-    private func loadMockData() {
-        // Mock node scores (0-100)
-        let mockNodeScores: [String: Int] = [
-            "Boost Energy": 65,
-            "Increase Focus": 70,
-            "Execute Tasks": 80,
-            "Generate Income": 75,
-            "Repay Debt": 40,
-            "Nurture Home": 60,
-            "Mental Stability": 55,
-            "Training": 50,
-            "Sleep": 60,
-            "Healthy Food": 70,
-            "Supplements": 40,
-        ]
-        
-        // Mock changes are hardcoded below, so the random generator is unused.
-        // let generateRandomChange = { () -> Int in
-        //     return Int.random(in: -10...10)
-        // }
-        
-        // Create flow steps
-        flowSteps = [
-            FlowStep(id: "Boost Energy", label: "Boost Energy", isPriority: true, score: mockNodeScores["Boost Energy"] ?? 65, change: -7),
-            FlowStep(id: "Increase Focus", label: "Increase Focus", isPriority: false, score: mockNodeScores["Increase Focus"] ?? 70, change: 3),
-            FlowStep(id: "Execute Tasks", label: "Execute Tasks", isPriority: false, score: mockNodeScores["Execute Tasks"] ?? 80, change: 6),
-            FlowStep(id: "Generate Income", label: "Generate Income", isPriority: false, score: mockNodeScores["Generate Income"] ?? 75, change: 3),
-            FlowStep(id: "Repay Debt", label: "Repay Debt", isPriority: true, score: mockNodeScores["Repay Debt"] ?? 40, change: 3),
-            FlowStep(id: "Nurture Home", label: "Nurture Home", isPriority: true, score: mockNodeScores["Nurture Home"] ?? 60, change: 4),
-            FlowStep(id: "Mental Stability", label: "Mental Stability", isPriority: false, score: mockNodeScores["Mental Stability"] ?? 55, change: 7)
-        ]
-        
-        // Create energy inputs
-        energyInputs = [
-            EnergyInput(id: "Training", label: "Training", score: mockNodeScores["Training"] ?? 50),
-            EnergyInput(id: "Sleep", label: "Sleep", score: mockNodeScores["Sleep"] ?? 60),
-            EnergyInput(id: "Healthy Food", label: "Food", score: mockNodeScores["Healthy Food"] ?? 70),
-            EnergyInput(id: "Supplements", label: "Supplements", score: mockNodeScores["Supplements"] ?? 40)
-        ]
-        
-        // Create priorities
-        let recommendations: [String: String] = [
-            "Boost Energy": "Improve your energy through better routines and recovery.", // Updated text again
-            "Repay Debt": "Set aside 30 minutes to review your budget and make a debt payment.",
-            "Nurture Home": "Spend quality time with your partner or create a calming space at home.",
-            "Training": "Schedule 3-4 short but intense workout sessions this week.",
-            "Sleep": "Establish a consistent sleep schedule and aim for 7-8 hours of quality sleep.",
-            "Healthy Food": "Prepare nutrient-dense meals and reduce processed food consumption.",
-            "Supplements": "Add key supplements to support your health and goals." // Updated text
-        ]
-        
-        // Define the 3 core levers to be used for priorities
-        let coreLeversForPriorities = [
-            (node: "Boost Energy", score: mockNodeScores["Boost Energy"] ?? 65),
-            (node: "Repay Debt", score: mockNodeScores["Repay Debt"] ?? 40),
-            (node: "Nurture Home", score: mockNodeScores["Nurture Home"] ?? 60)
-            // Removed Training, Sleep, Healthy Food, Supplements from this list
-        ]
-        
-        // Sort the 3 core levers by score (ascending) to prioritize the lowest scores
-        // Use the filtered list 'coreLeversForPriorities' instead of the original 'coreLevers'
-        let sortedLevers = coreLeversForPriorities.sorted { $0.score < $1.score } // Corrected variable name here
-        
-        // Create priority objects
-        priorities = sortedLevers.enumerated().map { index, lever in
-            Priority(
-                id: UUID().uuidString,
-                node: lever.node,
-                score: lever.score,
-                recommendation: recommendations[lever.node] ?? "Focus on improving this area."
-            )
-        }
+
+    // Sets up the initial structure of flowSteps and energyInputs with default values
+    private func setupInitialState() {
+         // Initialize flowSteps and energyInputs with default structure but zero scores
+         // These scores will need to be updated based on fetched analysis results eventually
+         flowSteps = [
+             FlowStep(id: "Boost Energy", label: "Boost Energy", isPriority: true, score: 0, change: 0),
+             FlowStep(id: "Increase Focus", label: "Increase Focus", isPriority: false, score: 0, change: 0),
+             FlowStep(id: "Execute Tasks", label: "Execute Tasks", isPriority: false, score: 0, change: 0),
+             FlowStep(id: "Generate Income", label: "Generate Income", isPriority: false, score: 0, change: 0),
+             FlowStep(id: "Repay Debt", label: "Repay Debt", isPriority: true, score: 0, change: 0),
+             FlowStep(id: "Nurture Home", label: "Nurture Home", isPriority: true, score: 0, change: 0),
+             FlowStep(id: "Mental Stability", label: "Mental Stability", isPriority: false, score: 0, change: 0)
+         ]
+         energyInputs = [
+             EnergyInput(id: "Training", label: "Training", score: 0),
+             EnergyInput(id: "Sleep", label: "Sleep", score: 0),
+             EnergyInput(id: "Healthy Food", label: "Food", score: 0),
+             EnergyInput(id: "Supplements", label: "Supplements", score: 0)
+         ]
+         updatePriorityDisplay() // Initialize priority display with defaults
+         print("[CycleDataManager] Initial structure set.")
     }
-    
-    func calculateTotalScore() {
-        var score = 0.0
-        
-        // Calculate score from flow steps
-        for step in flowSteps {
-            if let weight = NODE_WEIGHTS[step.id] {
-                score += Double(step.score) * weight
+
+    // Fetches the latest score and priority node from the database
+    func loadLatestData() {
+        Task {
+            do {
+                print("[CycleDataManager] Loading latest score and priority...")
+                let (score, priority) = try await databaseService.getLatestDisplayScoreAndPriority()
+                await MainActor.run {
+                    self.totalScore = score ?? 0 // Default to 0 if nil
+                    self.currentPriorityNode = priority ?? "Boost Energy" // Default if nil
+                     // Update display elements based on new priority
+                     updatePriorityDisplay()
+                     // TODO: Update individual flowStep/energyInput scores
+                     // This requires fetching detailed score breakdown (e.g., from Scores or RawValues table)
+                     // Example: Fetch normalized scores for each category and apply to flowSteps/energyInputs
+                    print("[CycleDataManager] Loaded - Score: \(self.totalScore), Priority: \(self.currentPriorityNode)")
+                }
+            } catch {
+                print("‼️ [CycleDataManager] Error loading latest data: \(error)")
+                // Keep defaults on error
+                 await MainActor.run {
+                      self.totalScore = 0
+                      self.currentPriorityNode = "Boost Energy"
+                      updatePriorityDisplay()
+                 }
             }
         }
-        
-        // Calculate score from energy inputs
-        for input in energyInputs {
-            if let weight = NODE_WEIGHTS[input.id] {
-                score += Double(input.score) * weight
-            }
-        }
-        
-        // Ensure the score is between 0-100
-        totalScore = min(100, Int(round(score)))
     }
-    
+
+    // Updates the `priorities` array (which only holds the current priority)
+    // This array is used by the PriorityCardView.
+    private func updatePriorityDisplay() {
+          let recommendationText = recommendations[self.currentPriorityNode] ?? recommendations["Default"]!
+
+          let currentPriorityStruct = Priority(
+               id: self.currentPriorityNode, // Use node ID as identifier
+               node: self.currentPriorityNode,
+               score: self.totalScore, // Show the total score on the priority card
+               recommendation: recommendationText
+          )
+          self.priorities = [currentPriorityStruct] // Only show the current one
+          self.currentPriorityIndex = 0 // Always index 0
+          self.currentPriorityRecommendation = recommendationText // Update separate recommendation property if needed elsewhere
+          print("[CycleDataManager] Priority display updated for node: \(self.currentPriorityNode)")
+     }
+
+
+    // Provides detailed information for a specific node ID (used by NodeInfoView)
     func getNodeInfo(for nodeId: String) -> (title: String, description: String, importance: String) {
+        // TODO: Update importance strings to reflect actual calculation method if different from weights
         let nodeInfoMap: [String: (title: String, description: String, importance: String)] = [
             "Boost Energy": (
                 title: "Boost Energy",
                 description: "Your energy level affects everything downstream in the cycle. Focus on sleep, nutrition, exercise, and supplements to maintain optimal energy.",
-                importance: "Core lever with 30% weight in your total score based on energy tasks."
+                importance: "Core lever (Composite Score derived from Training, Sleep, Healthy Food, Supplements)." // Clarified composite nature
             ),
             "Increase Focus": (
                 title: "Increase Focus",
                 description: "Your ability to concentrate and direct attention effectively. Better focus leads to more productive work sessions.",
-                importance: "Secondary node with 5% weight in your total score."
+                importance: "Secondary node. Contributes \(String(format: "%.0f%%", (NODE_WEIGHTS["Increase Focus"] ?? 0.0) * 100)) to total score."
             ),
             "Execute Tasks": (
                 title: "Execute Tasks",
                 description: "Completing app development and consulting work. This directly generates your income.",
-                importance: "Secondary node with 5% weight in your total score."
+                 importance: "Secondary node. Contributes \(String(format: "%.0f%%", (NODE_WEIGHTS["Execute Tasks"] ?? 0.0) * 100)) to total score."
             ),
             "Generate Income": (
                 title: "Generate Income",
                 description: "The financial results of your work. This feeds directly into debt repayment and cash reserves.",
-                importance: "Secondary node with 5% weight in your total score."
+                 importance: "Secondary node. Contributes \(String(format: "%.0f%%", (NODE_WEIGHTS["Generate Income"] ?? 0.0) * 100)) to total score."
             ),
-            "Stabilize Finances": (
-                title: "Stabilize Finances",
-                description: "Reducing financial obligations and building cash reserves. This reduces stress and improves future options.",
-                importance: "Core lever with 25% weight in your total score."
-            ),
+             "Repay Debt": ( // Changed ID from Stabilize Finances
+                 title: "Repay Debt", // Changed Title
+                 description: "Reducing financial obligations and building cash reserves. This reduces stress and improves future options.",
+                  importance: "Core lever. Contributes \(String(format: "%.0f%%", (NODE_WEIGHTS["Repay Debt"] ?? 0.0) * 100)) to total score." // Corrected weight/label
+             ),
             "Nurture Home": (
                 title: "Nurture Home",
                 description: "Creating a calm living environment and maintaining healthy relationships. This directly impacts mental stability.",
-                importance: "Core lever with 25% weight in your total score."
+                 importance: "Core lever. Contributes \(String(format: "%.0f%%", (NODE_WEIGHTS["Nurture Home"] ?? 0.0) * 100)) to total score."
             ),
             "Mental Stability": (
                 title: "Mental Stability",
                 description: "Your overall psychological wellbeing. This feeds back into energy levels, completing the cycle.",
-                importance: "Secondary node with 5% weight in your total score."
+                 importance: "Secondary node. Contributes \(String(format: "%.0f%%", (NODE_WEIGHTS["Mental Stability"] ?? 0.0) * 100)) to total score."
             ),
+            // Energy Inputs - Explain their contribution to Boost Energy
             "Training": (
                 title: "Training",
                 description: "Physical exercise that builds strength, endurance, and overall fitness.",
-                importance: "Energy input with 7.5% weight in your total score."
+                 importance: "Energy input. Contributes to Boost Energy composite score (Weighted \(String(format: "%.1f%%", (NODE_WEIGHTS["Training"] ?? 0.0) * 100))).",
             ),
             "Sleep": (
                 title: "Sleep",
                 description: "Quality and quantity of rest, critical for recovery and cognitive function.",
-                importance: "Energy input with 7.5% weight in your total score."
+                 importance: "Energy input. Contributes to Boost Energy composite score (Weighted \(String(format: "%.1f%%", (NODE_WEIGHTS["Sleep"] ?? 0.0) * 100))).",
             ),
             "Healthy Food": (
                 title: "Healthy Food",
                 description: "Nutritious diet that provides essential nutrients for optimal functioning.",
-                importance: "Energy input with 7.5% weight in your total score."
+                 importance: "Energy input. Contributes to Boost Energy composite score (Weighted \(String(format: "%.1f%%", (NODE_WEIGHTS["Healthy Food"] ?? 0.0) * 100))).",
             ),
             "Supplements": (
                 title: "Supplements",
                 description: "Additional nutritional support to address specific deficiencies or needs.",
-                importance: "Energy input with 7.5% weight in your total score."
+                 importance: "Energy input. Contributes to Boost Energy composite score (Weighted \(String(format: "%.1f%%", (NODE_WEIGHTS["Supplements"] ?? 0.0) * 100))).",
             )
         ]
-        
+
         return nodeInfoMap[nodeId] ?? (
             title: nodeId,
             description: "Information about this node is not available.",
             importance: "Weight information not available."
         )
     }
-    
+
+    // Removed next/previous priority as we now only show the single current priority
+    /*
     func nextPriority() {
-        currentPriorityIndex = (currentPriorityIndex + 1) % priorities.count
+        // Logic removed
     }
-    
+
     func previousPriority() {
-        currentPriorityIndex = (currentPriorityIndex - 1 + priorities.count) % priorities.count
+        // Logic removed
     }
+    */
 }
+
+// Add preview provider if needed
+ #Preview {
+      // Create mock services for preview
+      // DatabaseService init is @MainActor, ensure preview runs in a MainActor context implicitly or explicitly if needed.
+      // SwiftUI Previews generally run on the main thread.
+      let previewDbService = DatabaseService()
+      let cycleManager = CycleDataManager(databaseService: previewDbService) // Pass explicitly
+
+      // Example View using the manager
+      // CycleView itself now uses environmentObject for cycleData
+      return CycleView(presentNodeInfo: { _ in })
+           .environmentObject(cycleManager) // Provide the manager to the environment
+           .environmentObject(ThemeManager()) // Provide ThemeManager for preview
+           .padding()
+           .background(Color(UIColor.systemGray6))
+ }

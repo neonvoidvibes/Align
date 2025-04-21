@@ -3,56 +3,58 @@ import SwiftUI
 @main
 struct AlignApp: App {
     // Instantiate Services and Managers
-    // Use @StateObject for objects that need to survive view updates and publish changes
-    // Use simple let for services that don't publish or need persistent view state
     @StateObject private var appState = AppState()
     @StateObject private var themeManager = ThemeManager()
-    @StateObject private var databaseService = DatabaseService() // DB Service needs to be @StateObject if it publishes changes or needs persistence
+    // Initialize DatabaseService synchronously using StateObject
+    @StateObject private var databaseService: DatabaseService
     private let llmService = LLMService.shared // Use singleton pattern
 
     init() {
-        // Perform initial setup (like DB schema check)
-        // Note: DatabaseService init now triggers schema setup asynchronously
-        print("AlignApp initialized. DatabaseService setup initiated.")
+        // Initialize synchronous DatabaseService directly
+        do {
+            // This initialization now happens synchronously
+            let dbService = try DatabaseService()
+            _databaseService = StateObject(wrappedValue: dbService)
+             print("AlignApp initialized. DatabaseService setup completed synchronously.")
+        } catch {
+             print("‼️ FATAL ERROR: Failed to initialize DatabaseService: \(error)")
+             // Using fatalError as DB is critical for the app to function
+             fatalError("Database initialization failed: \(error.localizedDescription)")
+        }
     }
 
     var body: some Scene {
         WindowGroup {
-            // Pass services down to ContentView environment
-            ContentView(databaseService: databaseService, llmService: llmService)
+            // Instantiate CycleDataManager here, passing the DatabaseService
+            // databaseService is guaranteed to be initialized here (or app would have crashed)
+            let cycleDataManager = CycleDataManager(databaseService: databaseService)
+
+            ContentView(databaseService: databaseService, llmService: llmService, cycleData: cycleDataManager)
                 .environmentObject(appState)
                 .environmentObject(themeManager)
+                .environmentObject(cycleDataManager) // Provide CycleDataManager to environment
                 .preferredColorScheme(themeManager.colorScheme)
-                .onAppear {
-                    // Ensure theme is applied on app launch
-                    applyTheme()
-                }
-                // Updated onChange syntax (ignoring parameters)
-                .onChange(of: themeManager.theme) {
-                    applyTheme()
-                }
+                .onAppear { applyTheme() }
+                .onChange(of: themeManager.theme) { applyTheme() }
+            // Removed .task for DB initialization
         }
     }
-    
+
     private func applyTheme() {
-        // Apply theme to UIKit components
         let userInterfaceStyle: UIUserInterfaceStyle
         switch themeManager.theme {
-        case .dark:
-            userInterfaceStyle = .dark
-        case .light:
-            userInterfaceStyle = .light
-        case .system:
-            userInterfaceStyle = .unspecified
+        case .dark: userInterfaceStyle = .dark
+        case .light: userInterfaceStyle = .light
+        case .system: userInterfaceStyle = .unspecified
         }
-        
-        // Use modern API to access windows via scenes
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .forEach { windowScene in
-                windowScene.windows.forEach { window in
-                    window.overrideUserInterfaceStyle = userInterfaceStyle
-                }
+                windowScene.windows.forEach { $0.overrideUserInterfaceStyle = userInterfaceStyle }
             }
     }
 }
+
+// Removed Placeholder as fatalError is used on init failure now
+// @MainActor
+// class DatabaseServicePlaceholder: DatabaseService { ... }

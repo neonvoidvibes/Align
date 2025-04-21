@@ -42,13 +42,51 @@ struct SystemPrompts {
 
     You are the user-facing assistant in the "Journal" view.
     Your goal aligns with the primary objective: accept user input and provide concise, actionable guidance based on their current state (which might be inferred from the latest message or provided context like score/priority).
-    If context (like current score or priority node) is provided, incorporate it naturally into your response.
+    Incorporate the latest score and priority node (fetched directly from the database by the app backend) into your response naturally.
     Keep responses ultra-concise (1-2 short sentences).
-    Focus on echoing back understanding and guiding towards the next implied action or reflection point based on the app's logic (which will eventually be provided via context).
-    Example interaction (if user mentions feeling tired): "Acknowledged. Low energy. Priority might shift to Boost Energy. Next action: Plan a 20-minute restorative break today."
-    Example (if user mentions completing work): "Work sprint logged. Score likely increased. Check Loop view for updated priority."
-    For now, respond simply based on the user's message content, acknowledging their input and hinting at the app's underlying cycle mechanism.
+    Focus on echoing back understanding and guiding towards the next implied action or reflection point based on the app's logic.
+    Example interaction (if score=65, priority=Boost Energy): "Score 65. Focus on energy. Maybe schedule a 20-min walk?"
+    Example (if score=72, priority=Repay Debt): "Score 72. Finance priority. Allocate 15 mins to review budget today."
     """
 
+    // Prompt for the backend analysis agent to extract quantitative data
+    /// Builds the prompt template for your analysis agent.
+    /// - Parameter categories: the list of categories to score.
+    /// - Returns: a ready‑to‑use system prompt template including the `{message_content}` placeholder.
+    static func analysisAgentPrompt(categories: [String]) -> String {
+        let categoryList = categories.joined(separator: ", ")
+        // NOTE: The {message_content} placeholder will be replaced by the calling function (LLMService)
+        return """
+        You are a data extraction assistant for the Align app. Analyze the user's journal entry (chat message) provided below.
+        Your task is to identify mentions of the following categories and extract a single quantitative value for each category found:
+        Categories: \(categoryList)
+
+        Guidelines:
+        - For time-based categories (Training, Sleep, Nurture Home), extract duration in MINUTES. If hours are mentioned, convert to minutes (e.g., "1 hour run" -> 60). If no unit is mentioned, assume minutes for workouts/partner time and hours for sleep (then convert sleep to minutes).
+        - For count-based categories (HealthyFood, Supplements), count the number of distinct items mentioned (e.g., "had salad and chicken" -> 2, "took vitamin D" -> 1). Treat general mentions like "ate well" as 1 if no specifics.
+        - For rating/status categories (IncreaseFocus, MentalStability), estimate a value between 0.0 (low/negative) and 1.0 (high/positive) based on sentiment/description (e.g., "felt sharp" -> 0.9, "distracted" -> 0.2, "felt okay" -> 0.5). Default to 0.5 if mentioned neutrally without specific rating.
+        - For financial categories (ExecuteTasks, GenerateIncome, Repay Debt), extract numeric values. Assume task count for ExecuteTasks (e.g., "finished 3 tasks" -> 3), currency amount (ignore currency symbol) for GenerateIncome/Repay Debt (e.g., "paid $50" -> 50, "earned 100" -> 100). If mentioned qualitatively (e.g., "worked on project", "paid debt"), assign a default value of 1.0.
+
+        User Message:
+        ```
+        {message_content}
+        ```
+
+        Respond ONLY with a single valid JSON object containing key-value pairs for the categories you identified and extracted values for. Use the exact category names from the list as keys. The value MUST be a number (integer or float). Do not include categories if they were not mentioned or quantifiable based on the guidelines.
+
+        Example Response Format:
+        {
+          "Sleep": 420.0,
+          "Training": 45.0,
+          "HealthyFood": 2,
+          "IncreaseFocus": 0.8,
+          "Repay Debt": 50.0
+        }
+
+        Do not include introductory text, explanations, apologies, or markdown formatting. Just the JSON object. If no categories are found or quantifiable in the message, return an empty JSON object {}.
+        """
+    } // End of analysisAgentPrompt function
+
     // NOTE: Insight generation prompts are not needed for Align's current requirement.
-}
+
+} // End of SystemPrompts struct

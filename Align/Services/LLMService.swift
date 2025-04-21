@@ -86,14 +86,88 @@ final class LLMService {
         }
     }
 
+     /// Generates structured data (JSON) based on a message and analysis prompt.
+     func generateAnalysisData(messageContent: String) async throws -> [String: Double] {
+         print("LLMService: Generating analysis data for message: '\(messageContent.prefix(50))...'")
+
+         // Define the categories for the analysis prompt
+         let categories = Array(NODE_WEIGHTS.keys) // Get categories from shared weights
+         // Get the prompt template string by calling the static function
+         let systemPromptTemplate = SystemPrompts.analysisAgentPrompt(categories: categories)
+         // Inject the actual message content into the placeholder within the template string
+         let systemPrompt = systemPromptTemplate.replacingOccurrences(of: "{message_content}", with: messageContent)
+
+         // Prepare request body - Force JSON output mode with gpt-4o-mini (or latest supporting JSON mode)
+          let messagesPayload: [[String: Any]] = [
+              ["role": "system", "content": systemPrompt]
+              // Note: We put the user message *inside* the system prompt template now.
+              // No separate user message needed here for this specific prompt structure.
+          ]
+
+          let requestBodyPayload: [String: Any] = [
+              "model": "gpt-4o-mini", // Use a model known to support JSON mode well
+              "messages": messagesPayload,
+              "response_format": ["type": "json_object"] // Enforce JSON output
+          ]
+
+         guard let httpBody = try? JSONSerialization.data(withJSONObject: requestBodyPayload) else {
+             print("LLMService Error: Failed to serialize analysis request body.")
+             throw LLMError.sdkError("Failed to create analysis request body.")
+         }
+
+         var request = URLRequest(url: apiGatewayEndpoint)
+         request.httpMethod = "POST"
+         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+         request.setValue(APIConfiguration.apiGatewayApiKey, forHTTPHeaderField: "x-api-key")
+         request.httpBody = httpBody
+
+         do {
+             let (data, response) = try await URLSession.shared.data(for: request)
+
+             guard let httpResponse = response as? HTTPURLResponse else {
+                 throw LLMError.unexpectedResponse("Invalid response from proxy server for analysis.")
+             }
+
+             print("Proxy Analysis Response Status Code: \(httpResponse.statusCode)")
+
+             guard (200...299).contains(httpResponse.statusCode) else {
+                  let responseString = String(data: data, encoding: .utf8) ?? "No response body"
+                  print("Raw Proxy Analysis Error Response: \(responseString)")
+                 // Handle specific errors if needed
+                 throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)) during analysis: \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
+             }
+
+             // Decode the JSON response directly into [String: Double]
+             do {
+                 let decodedData = try JSONDecoder().decode([String: Double].self, from: data)
+                 print("LLMService: Successfully decoded analysis JSON.")
+                 return decodedData
+             } catch {
+                 print("LLMService Error: Failed to decode analysis JSON response.")
+                 print("Raw JSON Data Received: \(String(data: data, encoding: .utf8) ?? "Invalid Data")")
+                 throw LLMError.decodingError("Failed to decode analysis JSON: \(error.localizedDescription)")
+             }
+
+         } catch let error as LLMError {
+              print("LLMService Analysis Error: \(error.localizedDescription)")
+              throw error
+         } catch {
+             print("LLMService Analysis URLSession Error: \(error)")
+             throw LLMError.sdkError("Analysis network request failed: \(error.localizedDescription)")
+         }
+     }
+
+
      enum LLMError: Error, LocalizedError, Equatable {
          case sdkError(String)
          case unexpectedResponse(String)
+         case decodingError(String) // Add decoding error case
 
          var errorDescription: String? {
              switch self {
              case .sdkError(let reason): return "LLM Service Error: \(reason)"
              case .unexpectedResponse(let reason): return "Unexpected LLM response: \(reason)"
+             case .decodingError(let reason): return "LLM Decoding Error: \(reason)"
              }
          }
      }

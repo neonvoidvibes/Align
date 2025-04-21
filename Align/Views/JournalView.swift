@@ -160,7 +160,8 @@ struct MessageView: View {
 // Previews might need adjustment if ChatViewModel requires services
 struct JournalView_Previews: PreviewProvider {
     // Create instances of services needed by ChatViewModel for the preview
-    @StateObject static var previewDbService = DatabaseService()
+     // Use try! for throwing initializer in preview context
+     @StateObject static var previewDbService = try! DatabaseService()
     static let previewLlmService = LLMService.shared // Use singleton
 
     static var previews: some View {
