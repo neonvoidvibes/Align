@@ -17,7 +17,7 @@ actor AnalysisService {
         "ExecuteTasks": 1.0,       // Planned tasks per day (assuming 1 for now, could be configurable)
         "GenerateIncome": 100.0,   // Daily income target (example, needs configuration)
         "MentalStability": 1.0,    // rating (assuming 0-1)
-        "Repay Debt": 50.0,        // Daily debt repayment target (example, needs configuration)
+        "Improve Finances": 50.0,  // Daily financial action target (e.g., save/budget/pay) - formerly Repay Debt
         "Nurture Home": 60.0       // Daily partner time target (example, needs configuration)
     ]
     // Use NODE_WEIGHTS defined in CycleData.swift (consider moving to a shared config)
@@ -124,11 +124,12 @@ actor AnalysisService {
             let currentCategoryScores = (try? await databaseService.fetchCategoryScores(for: today)) ?? [:]
              // Calculate E/F/H scores locally based on fetched category scores
             let energyInputs = ["Training", "Sleep", "HealthyFood", "Supplements"]
-            let energySum = energyInputs.reduce(0.0) { $0 + (currentCategoryScores[$1] ?? 0.0) }
-            let energyScore = energyInputs.isEmpty ? 0.0 : energySum / Double(energyInputs.count)
-            let financeScore = currentCategoryScores["Repay Debt"] ?? 0.0
-            let homeScore = currentCategoryScores["Nurture Home"] ?? 0.0
-             // Now determine priority
+             let energySum = energyInputs.reduce(0.0) { $0 + (currentCategoryScores[$1] ?? 0.0) }
+             let energyScore = energyInputs.isEmpty ? 0.0 : energySum / Double(energyInputs.count)
+             // Use renamed category key
+             let financeScore = currentCategoryScores["Improve Finances"] ?? 0.0
+             let homeScore = currentCategoryScores["Nurture Home"] ?? 0.0
+              // Now determine priority
             let priorityNode = determinePriorityNodeLocal(energyScore: energyScore, financeScore: financeScore, homeScore: homeScore)
             print("[AnalysisService] Determined Priority Node: \(priorityNode)")
 
@@ -299,14 +300,14 @@ actor AnalysisService {
          }
      }
 
-     // Local helper to determine priority node based on category scores
-     private func determinePriorityNodeLocal(energyScore: Double, financeScore: Double, homeScore: Double) -> String {
-         let scores = [
-             ("Boost Energy", energyScore),
-             ("Repay Debt", financeScore),
-             ("Nurture Home", homeScore)
-         ]
-         // Find the node with the minimum score. Handle ties by prioritizing (e.g., Energy > Finance > Home)
+      // Local helper to determine priority node based on category scores
+      private func determinePriorityNodeLocal(energyScore: Double, financeScore: Double, homeScore: Double) -> String {
+          let scores = [
+              ("Boost Energy", energyScore),
+              ("Improve Finances", financeScore), // Use renamed category ID/Name
+              ("Nurture Home", homeScore)
+          ]
+          // Find the node with the minimum score. Handle ties by prioritizing (e.g., Energy > Finance > Home)
          let minScore = scores.min(by: { $0.1 < $1.1 })?.1 ?? 0.0
          let lowestNodes = scores.filter { $0.1 == minScore }
          // Simple tie-breaking: return the first one found (default order Energy, Finance, Home)

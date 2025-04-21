@@ -7,7 +7,7 @@ import Combine // Added for @MainActor and potentially future publishers
 let NODE_WEIGHTS: [String: Double] = [
     // Core Levers (Total weight specified in algorithm affects normalization, not direct summation here)
     "Boost Energy": 0.30, // Composite score weight
-    "Repay Debt": 0.25,   // Direct score weight
+    "Improve Finances": 0.25, // Direct score weight (Formerly Repay Debt)
     "Nurture Home": 0.25, // Direct score weight
 
     // Energy Inputs (Contribute to Boost Energy composite score)
@@ -37,7 +37,7 @@ struct FlowStep: Identifiable {
         case "Increase Focus": return "Focus"
         case "Execute Tasks": return "Project" // Assuming "Execute Tasks" relates to project work
         case "Generate Income": return "Income"
-        case "Repay Debt": return "Finance" // Map Repay Debt to Finance display label
+        case "Improve Finances": return "Finance" // Map Improve Finances to Finance display label
         case "Nurture Home": return "Home"
         case "Mental Stability": return "Mental"
         default: return label
@@ -73,7 +73,7 @@ class CycleDataManager: ObservableObject {
     private let databaseService: DatabaseService
     private let recommendations: [String: String] = [
         "Boost Energy": "Improve your energy through better routines and recovery.",
-        "Repay Debt": "Set aside 30 minutes to review your budget and make a debt payment.",
+        "Improve Finances": "Review your budget, savings goals, or income streams.", // Renamed key and broadened text
         "Nurture Home": "Spend quality time with your partner or create a calming space at home.",
         "Default": "Focus on improving this area."
     ]
@@ -91,7 +91,7 @@ class CycleDataManager: ObservableObject {
             FlowStep(id: "Increase Focus", label: "Increase Focus", isPriority: false, score: 0, change: 0),
             FlowStep(id: "Execute Tasks", label: "Execute Tasks", isPriority: false, score: 0, change: 0),
             FlowStep(id: "Generate Income", label: "Generate Income", isPriority: false, score: 0, change: 0),
-            FlowStep(id: "Repay Debt", label: "Repay Debt", isPriority: true, score: 0, change: 0),
+            FlowStep(id: "Improve Finances", label: "Improve Finances", isPriority: true, score: 0, change: 0), // Renamed from Repay Debt
             FlowStep(id: "Nurture Home", label: "Nurture Home", isPriority: true, score: 0, change: 0),
             FlowStep(id: "Mental Stability", label: "Mental Stability", isPriority: false, score: 0, change: 0)
         ]
@@ -200,10 +200,10 @@ class CycleDataManager: ObservableObject {
                  "Tracks progress towards income goals through work or other activities.",
                  "Secondary Node (Direct Score, Weight: 5%)"
              ),
-             "Repay Debt": (
-                 "Repay Debt",
-                 "Monitors efforts towards reducing financial debt and improving financial stability.",
-                 "Core Lever (Direct Score, Weight: 25%)"
+             "Improve Finances": ( // Renamed key
+                 "Improve Finances", // Renamed title
+                 "Encompasses budgeting, saving, debt management, and income generation to build financial stability and abundance.", // Broadened description
+                 "Core Lever (Direct Score, Weight: 25%)" // Weight remains
              ),
              "Nurture Home": (
                  "Nurture Home",
@@ -285,4 +285,4 @@ class CycleDataManager: ObservableObject {
      return CycleView(presentNodeInfo: { _ in })
           .environmentObject(cycleManager)
           .environmentObject(ThemeManager())
- }  
+ }
