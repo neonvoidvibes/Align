@@ -46,35 +46,58 @@ actor AnalysisService {
                   return
              }
 
-            // 2. Extract Quantitative Values using LLM
-            print("[AnalysisService] Extracting values from message: '\(message.content.prefix(50))...'")
-            let extractedValues = await extractValuesFromMessage(messageContent: message.content)
-            print("[AnalysisService] Extracted values: \(extractedValues)")
+            // 2. Fetch the *latest* recorded raw values and their date for context & decay calculation
+            print("[AnalysisService] Fetching latest recorded raw values...")
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: message.timestamp) // Use message timestamp for the relevant day
+            let latestData = try? await databaseService.fetchLatestRawValuesAndDate()
+            let latestValues = latestData?.values ?? [:]
+            let latestDate = latestData?.date
 
-            // 3. Get today's date (start of day)
-             let calendar = Calendar.current
-             let today = calendar.startOfDay(for: message.timestamp) // Use message timestamp for the relevant day
+            // Use .abbreviated date format
+            print("[AnalysisService] Latest values (from \(latestDate?.formatted(date: .abbreviated, time: .omitted) ?? "N/A")) for context: \(latestValues)")
 
-            // 4. Fetch previous day's raw values
-            print("[AnalysisService] Fetching previous day's raw values...")
-            let previousDay = calendar.date(byAdding: .day, value: -1, to: today)!
-            let previousRawValues = try await databaseService.fetchRawValues(for: previousDay)
-            print("[AnalysisService] Previous day values: \(previousRawValues)")
+            // 3. Extract/Infer Quantitative Values using LLM with the *latest* context
+            print("[AnalysisService] Extracting/inferring values from message: '\(message.content.prefix(50))...'")
+            let inferredValues = await extractValuesFromMessage(messageContent: message.content, previousValues: latestValues) // Pass latest values
+            print("[AnalysisService] Inferred values: \(inferredValues)")
 
-            // 5. Calculate & Store Today's Raw Values (with decay)
+            // 4. Calculate days missed since last data entry (if any)
+            var daysMissed = 0
+            if let lastDate = latestDate {
+                // Ensure 'today' is actually after 'lastDate' before calculating difference
+                if today > lastDate {
+                 } else if today < lastDate {
+                    // This shouldn't happen if message timestamps are chronological, but handle defensively
+                    // Use .abbreviated date format
+                    print("⚠️ [AnalysisService] Current message date (\(today.formatted(date: .abbreviated, time: .omitted))) is before last recorded raw value date (\(lastDate.formatted(date: .abbreviated, time: .omitted))). Assuming 0 days missed for decay.")
+                    daysMissed = 0
+                }
+                // If today == lastDate, daysMissed remains 0, which is correct.
+            } else {
+                // No previous data, so effectively infinite days missed, but decay starts from 0 anyway.
+                daysMissed = 0 // Or could use a large number, but 0 works with pow(factor, 0) = 1
+            }
+            print("[AnalysisService] Days missed since last data: \(daysMissed)")
+
+
+            // 5. Calculate & Store Today's Raw Values (using inferred values + decay over missed days)
             var todayRawValues: [String: Double] = [:]
-             for category in nodeWeights.keys { // Iterate through all defined categories
-                 if let extractedValue = extractedValues[category] {
-                     todayRawValues[category] = extractedValue
-                     print("   [RawValue Calc] Category '\(category)': Using extracted value \(extractedValue)")
-                 } else {
-                     // Apply decay if value not extracted
-                     let previousValue = previousRawValues[category] ?? 0.0 // Default to 0 if no previous value
-                     let decayedValue = previousValue * decayFactor
-                     todayRawValues[category] = decayedValue
-                      print("   [RawValue Calc] Category '\(category)': Applying decay. Previous: \(previousValue), Decayed: \(decayedValue)")
-                 }
-             }
+            for category in nodeWeights.keys { // Iterate through all defined categories
+                if let inferredValue = inferredValues[category] {
+                    // Use the value inferred by the LLM
+                    todayRawValues[category] = inferredValue
+                    print("   [RawValue Calc] Category '\(category)': Using inferred value \(inferredValue)")
+                } else {
+                    // Apply decay over potentially multiple days if LLM didn't infer a value
+                    let previousValue = latestValues[category] ?? 0.0 // Start from the last *recorded* value
+                    // Apply decay factor for each missed day. pow(decay, 0) = 1, so it works for 0 days missed.
+                    let decayMultiplier = pow(decayFactor, Double(max(0, daysMissed))) // Ensure exponent is non-negative
+                    let decayedValue = previousValue * decayMultiplier
+                    todayRawValues[category] = decayedValue
+                    print("   [RawValue Calc] Category '\(category)': Applying decay (\(daysMissed) days). Last Recorded: \(previousValue), Multiplier: \(decayMultiplier.formatted(.number.precision(.significantDigits(3)))), Today's Decayed: \(decayedValue)")
+                }
+            }
             try await databaseService.saveRawValues(values: todayRawValues, for: today)
             print("✅ [AnalysisService] Saved today's raw values: \(todayRawValues)")
 
@@ -88,14 +111,20 @@ actor AnalysisService {
             print("[AnalysisService] Determined Priority Node: \(priorityNode)")
 
             // 8. Save Scores and Priority
-            try await databaseService.saveScores(
-                date: today,
-                displayScore: displayScore,
-                energyScore: energyScore,
+            // Explicitly run on MainActor since DatabaseService is @MainActor isolated
+            try await MainActor.run {
+                try databaseService.saveScores(
+                    date: today,
+                    displayScore: displayScore,
+                    energyScore: energyScore,
                 financeScore: financeScore,
                 homeScore: homeScore
-            )
-            try await databaseService.savePriorityNode(date: today, node: priorityNode)
+                )
+            }
+            // Explicitly run on MainActor since DatabaseService is @MainActor isolated
+            try await MainActor.run {
+                try databaseService.savePriorityNode(date: today, node: priorityNode)
+            }
             print("✅ [AnalysisService] Saved scores and priority node.")
 
             // 9. Mark Message as Processed
@@ -109,13 +138,17 @@ actor AnalysisService {
         print("🏁 [AnalysisService] Finished analysis for message ID: \(messageId)")
     }
 
-    // Helper to call LLM for value extraction
-    private func extractValuesFromMessage(messageContent: String) async -> [String: Double] {
+    // Helper to call LLM for value extraction/inference
+    private func extractValuesFromMessage(messageContent: String, previousValues: [String: Double]?) async -> [String: Double] {
         do {
-            let extractedData: [String: Double] = try await llmService.generateAnalysisData(messageContent: messageContent)
-            return extractedData
+            // Pass previous values to the LLM service
+            let inferredData: [String: Double] = try await llmService.generateAnalysisData(
+                messageContent: messageContent,
+                previousDayValues: previousValues
+            )
+            return inferredData
         } catch {
-            print("‼️ [AnalysisService] Failed to extract values via LLM: \(error)")
+            print("‼️ [AnalysisService] Failed to infer values via LLM: \(error)")
             return [:] // Return empty dictionary on error
         }
     }

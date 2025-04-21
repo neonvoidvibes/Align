@@ -3,6 +3,18 @@ import Libsql // Import the SDK
 import SwiftUI // Needed for ObservableObject
 import NaturalLanguage // Needed for embedding helpers
 
+// Helper extension for safe optional integer retrieval
+extension Row {
+    func getOptionalInt(_ index: Int) throws -> Int64? {
+        let value = try self.getValue(index)
+        if case .null = value {
+            return nil
+        }
+        return try self.getInt(index)
+    }
+}
+
+
 // --- Custom Error Enum ---
 enum DatabaseError: Error {
     case initializationFailed(String)
@@ -313,49 +325,58 @@ class DatabaseService: ObservableObject {
          let placeholders = Array(repeating: "?", count: dateInts.count).joined(separator: ",")
          let sql = "SELECT date, category, value FROM RawValues WHERE date IN (\(placeholders)) ORDER BY date DESC;"
          let params: [Value] = dateInts.map { .integer(Int64($0)) }
-         print("[DB-RawValues] Fetching values for dates: \(dateInts)...")
-         let rows = try connection.query(sql, params)
-         var results: [Date: [String: Double]] = [:]
-         for row in rows {
-             guard let dateInt = try? row.getInt(0),
-                   let category = try? row.getString(1),
-                   let value = try? row.getDouble(2) else {
-                  print("⚠️ [DB-RawValues] Failed to decode row in multi-date fetch.")
-                 continue
-             }
-             if let originalDate = dates.first(where: { dateToInt($0) == dateInt }) {
-                 results[originalDate, default: [:]][category] = value
-             }
-         }
-          print("[DB-RawValues] Fetched values for \(results.count) dates.")
          return results
      }
+
+    // Fetch the latest raw values and the date they correspond to - Synchronous
+    func fetchLatestRawValuesAndDate() throws -> (date: Date, values: [String: Double])? {
+        // Find the latest date present in the RawValues table
+        let latestDateSql = "SELECT MAX(date) FROM RawValues;"
+        let dateRows = try connection.query(latestDateSql)
+
+        // Use flatMap for safer optional chaining and extraction
+        guard let latestDateInt = try dateRows.first(where: { _ in true })?.getOptionalInt(0) else {
+            // No data in the table yet OR Max(date) returned NULL
+            print("[DB-RawValues] No latest date found in RawValues.")
+            return nil
+        }
+
+        // Convert the integer date back to a Date object
+        guard let latestDate = intToDate(Int(latestDateInt)) else {
+            print("⚠️ [DB-RawValues] Failed to convert latest date int \(latestDateInt) back to Date.")
+            // This case should ideally not happen if latestDateInt is valid
+            return nil
+        }
+
+        // Fetch all values for that latest date
+        let valuesSql = "SELECT category, value FROM RawValues WHERE date = ?;"
+        let params: [Value] = [.integer(latestDateInt)]
+        let valueRows = try connection.query(valuesSql, params)
+
+        var results: [String: Double] = [:]
+        for row in valueRows {
+            guard let category = try? row.getString(0), let value = try? row.getDouble(1) else {
+                print("⚠️ [DB-RawValues] Failed to decode row for latest date \(latestDateInt).")
+                continue // Skip this row but continue processing others
+            }
+            results[category] = value
+        }
+
+        // Check if results are empty, which shouldn't happen if a date was found, but good safety check
+        if results.isEmpty && latestDateInt != 0 {
+             print("⚠️ [DB-RawValues] Found latest date \(latestDateInt) but no values associated?")
+             // Decide how to handle: return nil or empty results? Returning nil seems safer.
+             return nil
+        }
+
+        print("[DB-RawValues] Fetched latest values (\(results.count)) for date \(latestDate.formatted(date: .short, time: .omitted)).")
+        return (date: latestDate, values: results)
+    }
 
 
      // MARK: - Score & Priority Operations (for Analysis)
 
      // Save daily scores - Synchronous
-     func saveScores(date: Date, displayScore: Int, energyScore: Double, financeScore: Double, homeScore: Double) throws {
-         let dateInt = dateToInt(date)
-         let sql = """
-         INSERT OR REPLACE INTO Scores (date, display_score, energy_score, finance_score, home_score)
-         VALUES (?, ?, ?, ?, ?);
-         """
-         let params: [Value] = [.integer(Int64(dateInt)), .integer(Int64(displayScore)), .real(energyScore), .real(financeScore), .real(homeScore)]
-         _ = try connection.execute(sql, params)
-         print("✅ [DB-Scores] Saved scores for date \(dateInt).")
-     }
-
-     // Save daily priority node - Synchronous
-     func savePriorityNode(date: Date, node: String) throws {
-         let dateInt = dateToInt(date)
-         let sql = "INSERT OR REPLACE INTO PriorityNodes (date, node) VALUES (?, ?);"
-         let params: [Value] = [.integer(Int64(dateInt)), .text(node)]
-         _ = try connection.execute(sql, params)
-         print("✅ [DB-Priority] Saved priority node '\(node)' for date \(dateInt).")
-     }
-
-     // Fetch the latest display score and priority node - Synchronous
      func getLatestDisplayScoreAndPriority() throws -> (displayScore: Int?, priorityNode: String?) {
          let scoresSql = "SELECT display_score FROM Scores ORDER BY date DESC LIMIT 1;"
          let prioritySql = "SELECT node FROM PriorityNodes ORDER BY date DESC LIMIT 1;"

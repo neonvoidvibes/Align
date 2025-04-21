@@ -17,11 +17,13 @@ final class LLMService {
         messagesPayload.append(["role": "system", "content": systemPrompt])
         if let ctx = context, !ctx.isEmpty {
              messagesPayload.append(["role": "user", "content": "Relevant Context:\n\(ctx)"])
+             // Print context being sent (optional, for debugging)
+             // print("[ChatViewModel] Combined Context for LLM:\n\(ctx)")
         }
         messagesPayload.append(["role": "user", "content": userMessage])
 
         let requestBodyPayload: [String: Any] = [
-            "model": "gpt-4.1",
+            "model": "gpt-4o", // Keep using gpt-4o for chat responses
             "messages": messagesPayload
         ]
 
@@ -67,15 +69,29 @@ final class LLMService {
                 }
             }
 
-            guard let responsePayload = try? JSONDecoder().decode([String: String].self, from: data),
-                  let reply = responsePayload["reply"] else {
-                 let responseString = String(data: data, encoding: .utf8) ?? "Invalid response body"
-                 print("Raw Proxy Success Response (but failed decode): \(responseString)")
-                throw LLMError.unexpectedResponse("Failed to decode 'reply' from proxy response.")
+            // Try decoding the expected structure { "reply": "..." }
+            if let responsePayload = try? JSONDecoder().decode([String: String].self, from: data),
+               let reply = responsePayload["reply"] {
+                print("LLMService: Received and decoded 'reply' from proxy.")
+                return reply
+            } else {
+                // If that fails, maybe the proxy returned the raw OpenAI response? Let's try decoding that.
+                // Assuming OpenAI structure: { "choices": [ { "message": { "content": "..." } } ] }
+                struct OpenAIResponse: Decodable {
+                    struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message }
+                    let choices: [Choice]?
+                }
+                if let openAIResponse = try? JSONDecoder().decode(OpenAIResponse.self, from: data),
+                   let reply = openAIResponse.choices?.first?.message.content {
+                    print("LLMService Warning: Decoded raw OpenAI structure from proxy instead of expected {'reply': ...}. Using content.")
+                    return reply
+                } else {
+                    // If both fail, report the failure.
+                    let responseString = String(data: data, encoding: .utf8) ?? "Invalid response body"
+                    print("LLMService Error: Failed to decode proxy response. Raw data: \(responseString)")
+                    throw LLMError.unexpectedResponse("Failed to decode proxy response.")
+                }
             }
-
-            print("LLMService: Received response from proxy.")
-            return reply
 
         } catch let error as LLMError {
              print("LLMService Error: \(error.localizedDescription)")
@@ -86,25 +102,29 @@ final class LLMService {
         }
     }
 
-     /// Generates structured data (JSON) based on a message and analysis prompt.
-     func generateAnalysisData(messageContent: String) async throws -> [String: Double] {
-         print("LLMService: Generating analysis data for message: '\(messageContent.prefix(50))...'")
+     /// Generates structured data (JSON) based on a message and analysis prompt, considering previous day's values.
+     func generateAnalysisData(messageContent: String, previousDayValues: [String: Double]?) async throws -> [String: Double] {
+         let prevValuesString = previousDayValuesToString(previousDayValues)
+         print("LLMService: Generating analysis data for message: '\(messageContent.prefix(50))...' with previous values context: \(prevValuesString)")
 
          // Define the categories for the analysis prompt
          let categories = Array(NODE_WEIGHTS.keys) // Get categories from shared weights
          // Get the prompt template string by calling the static function
          let systemPromptTemplate = SystemPrompts.analysisAgentPrompt(categories: categories)
-         // Inject the actual message content into the placeholder within the template string
-         let systemPrompt = systemPromptTemplate.replacingOccurrences(of: "{message_content}", with: messageContent)
+         // Inject the actual message content and previous values into placeholders
+         var systemPrompt = systemPromptTemplate.replacingOccurrences(of: "{message_content}", with: messageContent)
+         systemPrompt = systemPrompt.replacingOccurrences(of: "{previous_day_values}", with: prevValuesString)
 
-         // Prepare request body - Force JSON output mode with gpt-4o-mini
+
+         // Prepare request body - Force JSON output mode with gpt-4o-mini (or latest supporting JSON mode)
           let messagesPayload: [[String: Any]] = [
               ["role": "system", "content": systemPrompt]
               // Note: We put the user message *inside* the system prompt template now.
+              // No separate user message needed here for this specific prompt structure.
           ]
 
           let requestBodyPayload: [String: Any] = [
-              "model": "gpt-4.1-mini", // Use a model known to support JSON mode well
+              "model": "gpt-4o-mini", // Keep using gpt-4o-mini for analysis
               "messages": messagesPayload,
               "response_format": ["type": "json_object"] // Enforce JSON output
           ]
@@ -136,53 +156,40 @@ final class LLMService {
                  throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)) during analysis: \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
              }
 
-             // Attempt to decode the outer proxy structure {"reply": "..."}
-              struct ProxyResponse: Decodable { let reply: String }
-              do {
-                  let proxyResponse = try JSONDecoder().decode(ProxyResponse.self, from: data)
-                  let innerJsonString = proxyResponse.reply
-                  print("LLMService: Decoded proxy response. Inner JSON string received: \(innerJsonString)")
-
-                  // Now decode the inner JSON string
-                  guard let innerData = innerJsonString.data(using: .utf8) else {
-                       print("LLMService Error: Failed to convert inner JSON string to Data.")
-                       throw LLMError.decodingError("Failed to convert inner JSON string to Data.")
-                  }
-
-                  // Handle potential empty inner JSON {}
-                  if innerJsonString.trimmingCharacters(in: .whitespacesAndNewlines) == "{}" {
-                        print("LLMService: Inner JSON is empty '{}'. Returning empty dictionary.")
-                        return [:]
-                  }
-
-                  do {
-                      let decodedData = try JSONDecoder().decode([String: Double].self, from: innerData)
-                      print("LLMService: Successfully decoded inner analysis JSON.")
-                      return decodedData
-                  } catch let innerDecodingError {
-                       print("LLMService Error: Failed to decode INNER analysis JSON string.")
-                       print("Inner JSON String: >>>\(innerJsonString)<<<")
-                       throw LLMError.decodingError("Failed to decode inner analysis JSON: \(innerDecodingError.localizedDescription)")
-                  }
-              } catch let outerDecodingError {
-                   // If decoding the ProxyResponse fails, maybe the response isn't wrapped?
-                   // Try decoding directly as [String: Double] as a fallback.
-                   print("LLMService Warning: Failed to decode outer ProxyResponse (\(outerDecodingError)). Attempting direct decode...")
-                   print("Raw JSON Data Received: \(String(data: data, encoding: .utf8) ?? "Invalid Data")")
-                   do {
-                        // Handle potential empty JSON {} directly as well
-                        if String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "{}" {
-                            print("LLMService: Direct JSON is empty '{}'. Returning empty dictionary.")
-                            return [:]
-                        }
-                        let decodedData = try JSONDecoder().decode([String: Double].self, from: data)
-                        print("LLMService: Successfully decoded analysis JSON directly (fallback).")
-                        return decodedData
-                   } catch let directDecodingError {
-                        print("LLMService Error: Direct decoding also failed (\(directDecodingError)). Giving up.")
-                         throw LLMError.decodingError("Failed to decode analysis JSON (tried proxy wrapper and direct): \(directDecodingError.localizedDescription)")
-                   }
-              }
+             // The proxy *should* return the JSON content directly.
+             // Let's decode it directly into [String: Double].
+             do {
+                 // First, try to decode the data as if it's the direct JSON payload we want.
+                  let decodedData = try JSONDecoder().decode([String: Double].self, from: data)
+                  print("LLMService: Successfully decoded analysis JSON.")
+                  return decodedData
+             } catch let directDecodeError {
+                 // If direct decoding fails, maybe the proxy wrapped it in `{"reply": "{...}"}`?
+                 // Let's try decoding that structure and then parsing the inner JSON string.
+                 print("LLMService Warning: Direct JSON decoding failed (\(directDecodeError.localizedDescription)). Trying to decode {\"reply\": \"{...}\"} structure...")
+                 if let wrappedPayload = try? JSONDecoder().decode([String: String].self, from: data),
+                    let jsonString = wrappedPayload["reply"],
+                    let jsonData = jsonString.data(using: .utf8) {
+                     do {
+                         let innerDecodedData = try JSONDecoder().decode([String: Double].self, from: jsonData)
+                         print("LLMService: Successfully decoded inner analysis JSON string from 'reply'.")
+                         // Check if the inner JSON is empty and log appropriately
+                         if innerDecodedData.isEmpty {
+                             print("LLMService: Inner JSON is empty '{}'. Returning empty dictionary.")
+                         }
+                         return innerDecodedData
+                     } catch let innerDecodeError {
+                         print("LLMService Error: Failed to decode inner analysis JSON string.")
+                         print("Inner JSON String Received: \(jsonString)")
+                         throw LLMError.decodingError("Failed to decode inner analysis JSON: \(innerDecodeError.localizedDescription)")
+                     }
+                 } else {
+                     // If both direct and wrapped decoding fail, report the original error.
+                     print("LLMService Error: Failed to decode analysis JSON response in any expected format.")
+                     print("Raw JSON Data Received: \(String(data: data, encoding: .utf8) ?? "Invalid Data")")
+                     throw LLMError.decodingError("Failed to decode analysis JSON: \(directDecodeError.localizedDescription)") // Report the initial error
+                 }
+             }
 
          } catch let error as LLMError {
               print("LLMService Analysis Error: \(error.localizedDescription)")
@@ -193,6 +200,24 @@ final class LLMService {
          }
      }
 
+    // Helper function to format the dictionary into a string suitable for the prompt
+    private func previousDayValuesToString(_ values: [String: Double]?) -> String {
+        guard let values = values, !values.isEmpty else {
+            return "{}" // Provide an empty JSON object string for the LLM
+        }
+        // Format as a JSON string for better structure within the prompt
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys // Consistent order helps the LLM
+        // Format numbers to one decimal place before encoding
+        let formattedValues = values.mapValues { Double(String(format: "%.1f", $0)) ?? $0 }
+        if let data = try? encoder.encode(formattedValues),
+           let jsonString = String(data: data, encoding: .utf8) {
+            return jsonString
+        } else {
+            // Fallback to simpler format if JSON encoding fails (less likely now)
+            return values.map { "\($0.key): \($0.value.formatted(.number.precision(.fractionLength(1))))" }.joined(separator: ", ")
+        }
+    }
 
      enum LLMError: Error, LocalizedError, Equatable {
          case sdkError(String)
