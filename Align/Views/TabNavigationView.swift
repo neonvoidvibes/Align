@@ -7,7 +7,7 @@ struct TabNavigationView: View {
     @EnvironmentObject private var themeManager: ThemeManager
 
     // Define views array and geometry constants
-    private let views: [AppView] = [.history, .journal, .loop] // Order matters for display
+    private let views: [AppView] = [.notes, .journal, .loop] // Use .notes
     private let selectedNavBarWidth: CGFloat = 41
     private let unselectedNavBarWidth: CGFloat = 20
     private let navBarHeight: CGFloat = 3.75
@@ -15,7 +15,7 @@ struct TabNavigationView: View {
     // Computed property for header title based on currentView
     private var headerTitle: String {
         switch currentView {
-        case .history: return "History"
+        case .notes: return "Notes" // Renamed
         case .journal: return "Journal"
         case .loop: return "Loop"
         }
@@ -87,7 +87,7 @@ struct TabNavigationView_Previews: PreviewProvider {
     static var previews: some View {
         VStack {
             TabNavigationView(
-                currentView: .constant(.history), // Start at history
+                currentView: .constant(.notes), // Start at notes
                 onSettingsClick: { print("Settings Tapped") },
                 onNewChatClick: { print("New Chat Tapped") }
             )
