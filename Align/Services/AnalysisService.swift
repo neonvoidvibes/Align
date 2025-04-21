@@ -47,15 +47,16 @@ actor AnalysisService {
              }
 
             // 2. Fetch the *latest* recorded raw values and their date for context & decay calculation
-            print("[AnalysisService] Fetching latest recorded raw values...")
             let calendar = Calendar.current
             let today = calendar.startOfDay(for: message.timestamp) // Use message timestamp for the relevant day
+            // Call original function name
             let latestData = try? await databaseService.fetchLatestRawValuesAndDate()
             let latestValues = latestData?.values ?? [:]
             let latestDate = latestData?.date
 
-            // Use .abbreviated date format
-            print("[AnalysisService] Latest values (from \(latestDate?.formatted(date: .abbreviated, time: .omitted) ?? "N/A")) for context: \(latestValues)")
+            // Format the date safely into a separate string variable first
+            let latestDateString = latestDate?.formatted(date: .abbreviated, time: .omitted) ?? "N/A"
+            print("[AnalysisService] Latest values (from \(latestDateString)) for context: \(latestValues)")
 
             // 3. Extract/Infer Quantitative Values using LLM with the *latest* context
             print("[AnalysisService] Extracting/inferring values from message: '\(message.content.prefix(50))...'")
@@ -67,10 +68,14 @@ actor AnalysisService {
             if let lastDate = latestDate {
                 // Ensure 'today' is actually after 'lastDate' before calculating difference
                 if today > lastDate {
+                     // Calculate the difference only if today is after lastDate
+                     daysMissed = calendar.dateComponents([.day], from: lastDate, to: today).day ?? 0
                  } else if today < lastDate {
                     // This shouldn't happen if message timestamps are chronological, but handle defensively
-                    // Use .abbreviated date format
-                    print("⚠️ [AnalysisService] Current message date (\(today.formatted(date: .abbreviated, time: .omitted))) is before last recorded raw value date (\(lastDate.formatted(date: .abbreviated, time: .omitted))). Assuming 0 days missed for decay.")
+                    // Format dates into strings first
+                    let todayString = today.formatted(date: .abbreviated, time: .omitted)
+                    let lastDateString = lastDate.formatted(date: .abbreviated, time: .omitted)
+                    print("⚠️ [AnalysisService] Current message date (\(todayString)) is before last recorded raw value date (\(lastDateString)). Assuming 0 days missed for decay.")
                     daysMissed = 0
                 }
                 // If today == lastDate, daysMissed remains 0, which is correct.
@@ -98,11 +103,14 @@ actor AnalysisService {
                     print("   [RawValue Calc] Category '\(category)': Applying decay (\(daysMissed) days). Last Recorded: \(previousValue), Multiplier: \(decayMultiplier.formatted(.number.precision(.significantDigits(3)))), Today's Decayed: \(decayedValue)")
                 }
             }
+            // Add await back as saveRawValues is on MainActor DB service
             try await databaseService.saveRawValues(values: todayRawValues, for: today)
             print("✅ [AnalysisService] Saved today's raw values: \(todayRawValues)")
 
             // 6. Calculate Scores based on 7-day window
-            print("[AnalysisService] Calculating scores based on 7-day window ending \(today.formatted(date: .abbreviated, time: .omitted))...") // Use .abbreviated
+            // Format date into string first
+            let todayScoreString = today.formatted(date: .abbreviated, time: .omitted)
+            print("[AnalysisService] Calculating scores based on 7-day window ending \(todayScoreString)...") // Use .abbreviated
             let (displayScore, energyScore, financeScore, homeScore) = await calculateScores(for: today)
             print("[AnalysisService] Calculated Scores - Display: \(displayScore), E: \(energyScore), F: \(financeScore), H: \(homeScore)")
 
@@ -164,6 +172,7 @@ actor AnalysisService {
             let dateRange = (0..<windowDays).compactMap { i in
                 calendar.date(byAdding: .day, value: -i, to: date)
             }
+            // Add await back as fetchRawValues(forDates:) is on MainActor DB service
             let historicalRawValues = try await databaseService.fetchRawValues(forDates: dateRange)
             print("[AnalysisService-ScoreCalc] Fetched \(historicalRawValues.count) days of raw values.")
 

@@ -45,7 +45,8 @@ class DatabaseService: ObservableObject {
         print("Database connection established.")
 
         // Enable Write-Ahead Logging (WAL) mode for better performance/concurrency
-        _ = try connection.execute("PRAGMA journal_mode=WAL;")
+        // Use query() instead of execute() for PRAGMA as it might return a status row
+        _ = try connection.query("PRAGMA journal_mode=WAL;")
         print("WAL mode enabled.")
 
         // Run schema setup synchronously using the established connection
@@ -421,22 +422,27 @@ class DatabaseService: ObservableObject {
         let sql = "SELECT MAX(date) FROM RawValues;"
         let dateRows = try connection.query(sql)
 
-        // LEARNING (Reference App): Use precise pattern: get .first, then try? getInt(Int32(0))
-        // This pattern was causing issues, reverting to iteration.
         var latestDateInt64: Int64? = nil
+
+        // LEARNING (Reference App): Iterate even for aggregate/LIMIT 1 queries.
         for row in dateRows {
-            if let maxVal = try? row.getInt(Int32(0)) {
-                latestDateInt64 = Int64(maxVal)
+            // Try to get the Int64 value, explicitly casting result to Int64 within try?
+            // This explicit cast was the key fix for the persistent compiler error.
+            if let maxVal = try? Int64(row.getInt(Int32(0))) {
+                latestDateInt64 = maxVal
             } else {
+                // MAX(date) returned NULL or getInt failed
                 print("[DB-RawValues] MAX(date) query returned NULL or failed to extract Int64.")
             }
-            break // Since MAX() returns at most one row
+            break // Since MAX() returns at most one row, break after processing it
         }
 
+        // Check if we successfully extracted a non-null date
         guard let unwrappedLatestDateInt64 = latestDateInt64 else {
             print("[DB-RawValues] No latest date found (query returned no rows or NULL value).")
             return nil
         }
+        // If guard passes, unwrappedLatestDateInt64 is a non-optional Int64
 
         // Convert Int64 -> Int for Date helper
         let latestDateInt = Int(unwrappedLatestDateInt64)
@@ -447,12 +453,12 @@ class DatabaseService: ObservableObject {
             return nil
         }
 
-         // Fetch values for the found date
-         let valsSql = "SELECT category, value FROM RawValues WHERE date = ?;"
-         // Pass the unwrapped Int64 directly - matching reference app pattern
-         let params: [Value] = [.integer(unwrappedLatestDateInt64)]
-         let valRows = try connection.query(valsSql, params)
-         var dict: [String: Double] = [:]
+        // Fetch values for the found date
+        let valsSql = "SELECT category, value FROM RawValues WHERE date = ?;"
+        // Pass the unwrapped Int64 directly - matching reference app pattern
+        let params: [Value] = [.integer(unwrappedLatestDateInt64)]
+        let valRows = try connection.query(valsSql, params)
+        var dict: [String: Double] = [:]
 
         // LEARNING (Reference App): Iterate over rows.
         for vr in valRows {
