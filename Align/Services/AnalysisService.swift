@@ -103,29 +103,38 @@ actor AnalysisService {
                     print("   [RawValue Calc] Category '\(category)': Applying decay (\(daysMissed) days). Last Recorded: \(previousValue), Multiplier: \(decayMultiplier.formatted(.number.precision(.significantDigits(3)))), Today's Decayed: \(decayedValue)")
                 }
             }
-            // Add await back as saveRawValues is on MainActor DB service
-            try await databaseService.saveRawValues(values: todayRawValues, for: today)
-            print("✅ [AnalysisService] Saved today's raw values: \(todayRawValues)")
+             // Add await back as saveRawValues is on MainActor DB service
+             try await databaseService.saveRawValues(values: todayRawValues, for: today)
+             print("✅ [AnalysisService] Saved today's raw values: \(todayRawValues)")
 
-            // 6. Calculate Scores based on 7-day window
             // 6. Calculate Scores based on 7-day window, passing today's values directly
+            // Format date into string first
             let todayScoreString = today.formatted(date: .abbreviated, time: .omitted)
-            print("[AnalysisService] Calculating scores based on 7-day window ending \(todayScoreString)...") // Use .abbreviated
-            // Pass todayRawValues to calculateScores
-            let (displayScore, energyScore, financeScore, homeScore) = await calculateScores(for: today, todayValues: todayRawValues)
-            print("[AnalysisService] Calculated Scores - Display: \(displayScore), E: \(energyScore), F: \(financeScore), H: \(homeScore)")
+             print("[AnalysisService] Calculating scores based on 7-day window ending \(todayScoreString)...") // Use .abbreviated
+            // Assign the Int result directly, handle potential throw
+            let displayScore = try await calculateScores(for: today, todayValues: todayRawValues)
+             print("[AnalysisService] Calculated Display Score: \(displayScore)")
 
-            // 7. Determine Priority Node
-            let priorityNode = determinePriorityNode(energyScore: energyScore, financeScore: financeScore, homeScore: homeScore)
+             // 7. Determine Priority Node (based on newly saved category scores)
+            // Fetch the category scores we just saved to determine priority
+            let currentCategoryScores = (try? await databaseService.fetchCategoryScores(for: today)) ?? [:]
+             // Calculate E/F/H scores locally based on fetched category scores
+            let energyInputs = ["Training", "Sleep", "HealthyFood", "Supplements"]
+            let energySum = energyInputs.reduce(0.0) { $0 + (currentCategoryScores[$1] ?? 0.0) }
+            let energyScore = energyInputs.isEmpty ? 0.0 : energySum / Double(energyInputs.count)
+            let financeScore = currentCategoryScores["Repay Debt"] ?? 0.0
+            let homeScore = currentCategoryScores["Nurture Home"] ?? 0.0
+             // Now determine priority
+            let priorityNode = determinePriorityNodeLocal(energyScore: energyScore, financeScore: financeScore, homeScore: homeScore)
             print("[AnalysisService] Determined Priority Node: \(priorityNode)")
 
-            // 8. Save Scores and Priority
+            // 8. Save Display Score and Priority Node
             // Explicitly run on MainActor since DatabaseService is @MainActor isolated
             try await MainActor.run {
                 try databaseService.saveScores(
                     date: today,
                     displayScore: displayScore,
-                    energyScore: energyScore,
+                    energyScore: energyScore, // Save calculated E/F/H scores too
                 financeScore: financeScore,
                 homeScore: homeScore
                 )
@@ -162,11 +171,12 @@ actor AnalysisService {
         }
     }
 
-    // Helper to calculate scores, now accepting today's values explicitly
-    private func calculateScores(for date: Date, todayValues: [String: Double]) async -> (displayScore: Int, energyScore: Double, financeScore: Double, homeScore: Double) {
-        var categoryScores: [String: Double] = [:]
-        let calendar = Calendar.current
-        let daysToFetch = windowDays - 1 // Fetch only the days *before* today
+     // Helper to calculate scores, now accepting today's values explicitly
+     // Returns only the display score (Int), as category scores and priority are saved separately
+     private func calculateScores(for date: Date, todayValues: [String: Double]) async throws -> Int { // Make it throwing
+         var categoryScores: [String: Double] = [:]
+         let calendar = Calendar.current
+         let daysToFetch = windowDays - 1 // Fetch only the days *before* today
 
         do {
             // Fetch raw values for the days *before* the target date
@@ -210,7 +220,6 @@ actor AnalysisService {
                          valuesForAvg.append(0.0)
                      }
                  }
-                 // REMOVED the duplicate declaration of valuesForAvg here
 
                  if !valuesForAvg.isEmpty {
                       let avgValue = valuesForAvg.reduce(0, +) / Double(valuesForAvg.count)
@@ -224,6 +233,16 @@ actor AnalysisService {
                  }
              }
 
+             // --- Save the calculated category scores ---
+             // Capture scores locally before passing to MainActor block
+             let scoresToSave = categoryScores
+             // Run saving on MainActor as DatabaseService is MainActor isolated
+             try await MainActor.run {
+                 // Pass the captured scores dictionary
+                 try databaseService.saveCategoryScores(scores: scoresToSave, for: date)
+             }
+             // --- End saving category scores ---
+
 
             // Calculate Total Score
             var totalScore: Double = 0
@@ -236,39 +255,39 @@ actor AnalysisService {
             print("[AnalysisService-ScoreCalc] Raw Total Score: \(totalScore), Display Score: \(displayScore)")
 
 
-            // Calculate Composite Core Scores
-             // Energy: Mean of the four energy inputs
-             let energyInputs = ["Training", "Sleep", "HealthyFood", "Supplements"]
-             let energySum = energyInputs.reduce(0.0) { $0 + (categoryScores[$1] ?? 0.0) }
-             let energyScore = energyInputs.isEmpty ? 0.0 : energySum / Double(energyInputs.count)
+            // Calculate Composite Core Scores - No longer needed here as priority is determined later
+             // // Energy: Mean of the four energy inputs
+             // let energyInputs = ["Training", "Sleep", "HealthyFood", "Supplements"]
+             // let energySum = energyInputs.reduce(0.0) { $0 + (categoryScores[$1] ?? 0.0) }
+             // let energyScore = energyInputs.isEmpty ? 0.0 : energySum / Double(energyInputs.count)
+             //
+             // // Finance: Direct score
+             // let financeScore = categoryScores["Repay Debt"] ?? 0.0 // Use "Repay Debt" as key
+             //
+             // // Home: Direct score - No longer needed here
+             // let homeScore = categoryScores["Nurture Home"] ?? 0.0
 
-            // Finance: Direct score
-             let financeScore = categoryScores["Repay Debt"] ?? 0.0 // Use "Repay Debt" as key
-
-            // Home: Direct score
-             let homeScore = categoryScores["Nurture Home"] ?? 0.0
-
-            return (displayScore, energyScore, financeScore, homeScore)
+            // Return the Int directly, not a labeled tuple
+            return displayScore
 
         } catch {
             print("‼️ [AnalysisService] Error calculating scores: \(error)")
-            return (0, 0, 0, 0) // Return default scores on error
-        }
-    }
+             // Re-throw the error instead of returning a default
+             throw error // Propagate the error up
+         }
+     }
 
-    // Helper to determine priority node
-    private func determinePriorityNode(energyScore: Double, financeScore: Double, homeScore: Double) -> String {
+     // Local helper to determine priority node based on category scores
+     private func determinePriorityNodeLocal(energyScore: Double, financeScore: Double, homeScore: Double) -> String {
          let scores = [
              ("Boost Energy", energyScore),
              ("Repay Debt", financeScore),
              ("Nurture Home", homeScore)
          ]
-
-        // Find the node with the minimum score. Handle ties by prioritizing (e.g., Energy > Finance > Home) or choosing arbitrarily.
-        let minScore = scores.min(by: { $0.1 < $1.1 })?.1 ?? 0.0
-        let lowestNodes = scores.filter { $0.1 == minScore }
-
-        // Simple tie-breaking: return the first one found (default order Energy, Finance, Home)
-        return lowestNodes.first?.0 ?? "Boost Energy" // Default to Energy if all else fails
-    }
+         // Find the node with the minimum score. Handle ties by prioritizing (e.g., Energy > Finance > Home)
+         let minScore = scores.min(by: { $0.1 < $1.1 })?.1 ?? 0.0
+         let lowestNodes = scores.filter { $0.1 == minScore }
+         // Simple tie-breaking: return the first one found (default order Energy, Finance, Home)
+         return lowestNodes.first?.0 ?? "Boost Energy" // Default to Energy if all else fails
+     }
 }

@@ -45,7 +45,9 @@ class DatabaseService: ObservableObject {
         print("Database connection established.")
 
         // Enable Write-Ahead Logging (WAL) mode for better performance/concurrency
-        // Use query() instead of execute() for PRAGMA as it might return a status row
+        // LEARNING: Use query() instead of execute() for PRAGMA commands.
+        // PRAGMA might return a status row (e.g., the mode name "wal"), which causes
+        // execute() to throw a "Execute returned rows" error. query() handles results.
         _ = try connection.query("PRAGMA journal_mode=WAL;")
         print("WAL mode enabled.")
 
@@ -115,13 +117,30 @@ class DatabaseService: ObservableObject {
          )
          print("PriorityNodes table checked/created.")
 
+         // CategoryScores Table (NEW)
+         _ = try connection.execute(
+              """
+              CREATE TABLE IF NOT EXISTS CategoryScores (
+                  date INTEGER NOT NULL,
+                  category TEXT NOT NULL,
+                  normalized_score REAL NOT NULL,
+                  PRIMARY KEY (date, category)
+              );
+              """
+         )
+         print("CategoryScores table checked/created.")
+
+
         // Indexes
-        // Assign to _ to silence unused result warning
+        _ = try connection.execute("CREATE INDEX IF NOT EXISTS chat_embedding_idx ON ChatMessages( libsql_vector_idx(embedding) );")
+        _ = try connection.execute("CREATE INDEX IF NOT EXISTS chat_embedding_idx ON ChatMessages( libsql_vector_idx(embedding) );")
         _ = try connection.execute("CREATE INDEX IF NOT EXISTS chat_embedding_idx ON ChatMessages( libsql_vector_idx(embedding) );")
         print("ChatMessages vector index checked/created.")
-        // Assign to _ to silence unused result warning
         _ = try connection.execute("CREATE INDEX IF NOT EXISTS raw_values_date_idx ON RawValues (date);")
         print("RawValues date index checked/created.")
+        // Index for CategoryScores (NEW)
+        _ = try connection.execute("CREATE INDEX IF NOT EXISTS category_scores_date_idx ON CategoryScores (date);")
+        print("CategoryScores date index checked/created.")
     }
 
     // MARK: - Chat Message Operations
@@ -141,24 +160,25 @@ class DatabaseService: ObservableObject {
                    """ // Added basic single-quote escaping for safety
             // Explicitly cast TimeInterval to Int64 for timestamp
             params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
+                      // LEARNING: Explicitly cast TimeInterval (Double) to Int64 for INTEGER columns.
                       .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
             guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/Embed)") }
             } else {
                  print("Warning: Failed to convert CM embedding to JSON. Saving without embedding.")
                  sql = "INSERT OR REPLACE INTO ChatMessages (id, chatId, role, content, timestamp, isStarred, processed_for_analysis, embedding) VALUES (?, ?, ?, ?, ?, ?, 0, NULL);"
-                 // Explicitly cast TimeInterval to Int64 for timestamp
-                 params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
-                           .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
-                  guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed/JSONFail)") }
-            }
-        } else {
+                  // LEARNING: Explicitly cast TimeInterval (Double) to Int64 for INTEGER columns.
+                  params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
+                            .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
+                   guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed/JSONFail)") }
+             }
+         } else {
             sql = "INSERT OR REPLACE INTO ChatMessages (id, chatId, role, content, timestamp, isStarred, processed_for_analysis, embedding) VALUES (?, ?, ?, ?, ?, ?, 0, NULL);"
-            // Explicitly cast TimeInterval to Int64 for timestamp
-            params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
-                      .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
-             guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed)") }
-         }
-        // Execute synchronously
+             // LEARNING: Explicitly cast TimeInterval (Double) to Int64 for INTEGER columns.
+             params = [.text(message.id.uuidString), .text(chatId.uuidString), .text(roleString), .text(message.content),
+                       .integer(Int64(message.timestamp.timeIntervalSince1970)), .integer(message.isStarred ? 1 : 0)]
+              guard params.count == 6 else { throw DatabaseError.saveDataFailed("Param count mismatch (CM/NoEmbed)") }
+          }
+         // Execute synchronously
         _ = try self.connection.execute(sql, params)
         print("✅ [DB] Saved message \(message.id)")
         // *** Analysis trigger moved to ChatViewModel ***
@@ -173,12 +193,12 @@ class DatabaseService: ObservableObject {
          let params: [Value] = [.text(id.uuidString)]
          let rows = try connection.query(sql, params)
 
-         // LEARNING (Reference App): Iterate even for LIMIT 1 queries.
-         // The .first property on Rows can be unreliable or ambiguous with throwing functions.
-         // Iteration is the documented and safer pattern for libsql-swift.
+         // LEARNING: Iterate even for LIMIT 1 queries. The `.first` property on `Rows`
+         // can be ambiguous or problematic with error handling. Iteration is safer.
          for row in rows {
              // Attempt extraction within the loop
-             // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             // LEARNING: Use explicit Int32 indices (e.g., Int32(0)) for column access
+             // with `libsql-swift`'s getInt, getString, etc., methods to avoid ambiguity.
              guard
                  let idStr = try? row.getString(Int32(0)), let uuid = UUID(uuidString: idStr), // Use Int32 index
                  // Skip chatId (index 1) as it's not needed for the ChatMessage struct itself
@@ -258,9 +278,9 @@ class DatabaseService: ObservableObject {
          let rows = try self.connection.query(sql)
          var messagesByChatId: [UUID: [ChatMessage]] = [:]
 
-         // LEARNING (Reference App): Iterate over rows, don't assume other access patterns work reliably.
+         // LEARNING: Iterate over `Rows` results.
          for row in rows {
-             // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             // LEARNING: Use explicit Int32 indices for column access.
              guard
                  let idStr = try? row.getString(Int32(0)), let msgId = UUID(uuidString: idStr),
                  let chatIdStr = try? row.getString(Int32(1)), let chatId = UUID(uuidString: chatIdStr),
@@ -325,9 +345,9 @@ class DatabaseService: ObservableObject {
          let rows = try self.connection.query(sql, params)
          var items: [ContextItem] = []
 
-         // LEARNING (Reference App): Iterate over rows, don't assume other access patterns work reliably.
+         // LEARNING: Iterate over `Rows` results.
          for row in rows {
-               // LEARNING (Reference App): Use explicit Int32 indices for column access.
+               // LEARNING: Use explicit Int32 indices for column access.
                guard let idStr = try? row.getString(Int32(0)), let id = UUID(uuidString: idStr),
                      let chatIdStr = try? row.getString(Int32(1)), let chatId = UUID(uuidString: chatIdStr),
                      let roleStr = try? row.getString(Int32(2)),
@@ -377,9 +397,9 @@ class DatabaseService: ObservableObject {
          let rows = try connection.query(sql, params)
          var dict: [String: Double] = [:]
 
-         // LEARNING (Reference App): Iterate over rows.
+         // LEARNING: Iterate over `Rows` results.
          for row in rows {
-              // LEARNING (Reference App): Use explicit Int32 indices for column access.
+              // LEARNING: Use explicit Int32 indices for column access.
              if let cat = try? row.getString(Int32(0)), let val = try? row.getDouble(Int32(1)) {
                  dict[cat] = val
              } else {
@@ -401,9 +421,9 @@ class DatabaseService: ObservableObject {
          let rows = try connection.query(sql, params)
          var dict: [Date: [String: Double]] = [:]
 
-         // LEARNING (Reference App): Iterate over rows.
+         // LEARNING: Iterate over `Rows` results.
          for row in rows {
-             // LEARNING (Reference App): Use explicit Int32 indices for column access.
+             // LEARNING: Use explicit Int32 indices for column access.
              if let d = try? row.getInt(Int32(0)),
                 let cat = try? row.getString(Int32(1)),
                 let val = try? row.getDouble(Int32(2)),
@@ -417,6 +437,40 @@ class DatabaseService: ObservableObject {
          return dict
      }
 
+     // Save category scores - Synchronous
+     func saveCategoryScores(scores: [String: Double], for date: Date) throws {
+         let dateInt = dateToInt(date)
+         print("[DB-CategoryScores] Saving \(scores.count) category scores for date \(dateInt)...")
+         let sql = "INSERT OR REPLACE INTO CategoryScores (date, category, normalized_score) VALUES (?, ?, ?);"
+         for (category, score) in scores {
+             let params: [Value] = [
+                 .integer(Int64(dateInt)),
+                 .text(category),
+                 .real(score) // Store the normalized score (0.0-1.0)
+             ]
+             _ = try connection.execute(sql, params)
+         }
+         print("✅ [DB-CategoryScores] Saved category scores for date \(dateInt).")
+     }
+
+      // Fetch category scores for a specific date - Synchronous
+      func fetchCategoryScores(for date: Date) throws -> [String: Double] {
+          let dateInt = dateToInt(date)
+          let sql = "SELECT category, normalized_score FROM CategoryScores WHERE date = ?;"
+          let params: [Value] = [.integer(Int64(dateInt))]
+          let rows = try connection.query(sql, params)
+          var results: [String: Double] = [:]
+          for row in rows {
+              if let category = try? row.getString(Int32(0)), let score = try? row.getDouble(Int32(1)) {
+                  results[category] = score
+              } else {
+                  print("⚠️ [DB-CategoryScores] Failed to decode row for date \(dateInt).")
+              }
+          }
+          print("[DB-CategoryScores] Fetched \(results.count) category scores for date \(dateInt).")
+          return results
+      }
+
     // Fetch the latest raw values and the date they correspond to - Synchronous
     func fetchLatestRawValuesAndDate() throws -> (date: Date, values: [String: Double])? {
         let sql = "SELECT MAX(date) FROM RawValues;"
@@ -424,10 +478,11 @@ class DatabaseService: ObservableObject {
 
         var latestDateInt64: Int64? = nil
 
-        // LEARNING (Reference App): Iterate even for aggregate/LIMIT 1 queries.
+        // LEARNING: Iterate even for aggregate/LIMIT 1 queries.
         for row in dateRows {
-            // Try to get the Int64 value, explicitly casting result to Int64 within try?
-            // This explicit cast was the key fix for the persistent compiler error.
+            // LEARNING: Explicitly cast getInt result to Int64 within try?
+            // This resolved a persistent compiler error where the type of `try? row.getInt(...)`
+            // was sometimes ambiguously inferred, causing issues later.
             if let maxVal = try? Int64(row.getInt(Int32(0))) {
                 latestDateInt64 = maxVal
             } else {
@@ -455,26 +510,29 @@ class DatabaseService: ObservableObject {
 
         // Fetch values for the found date
         let valsSql = "SELECT category, value FROM RawValues WHERE date = ?;"
-        // Pass the unwrapped Int64 directly - matching reference app pattern
+        // Pass the unwrapped Int64 directly to .integer
         let params: [Value] = [.integer(unwrappedLatestDateInt64)]
         let valRows = try connection.query(valsSql, params)
-        var dict: [String: Double] = [:]
+        // Rename variable back to 'results'
+        var results: [String: Double] = [:]
 
         // LEARNING (Reference App): Iterate over rows.
         for vr in valRows {
             // LEARNING (Reference App): Use explicit Int32 indices for column access.
             if let cat = try? vr.getString(Int32(0)), let v = try? vr.getDouble(Int32(1)) {
-                dict[cat] = v
+                // Use 'results' variable
+                results[cat] = v
             } else {
                 print("⚠️ [DB-RawValues] Failed to decode category/value row for date \(latestDateInt).")
             }
-        }
+         }
 
-         // Check if results are empty (could happen if values were deleted for the max date)
-        if dict.isEmpty && latestDateInt != 0 {
-            print("⚠️ [DB-RawValues] Found latest date \(latestDateInt) but no values associated?")
-            // Return nil as the state is inconsistent
-            return nil
+          // Check if results dictionary is empty (could happen if values were deleted for the max date)
+          // LEARNING: Ensure variable names are correct after refactoring.
+         if results.isEmpty && latestDateInt != 0 { // Use 'results' here again
+             print("⚠️ [DB-RawValues] Found latest date \(latestDateInt) but no values associated?")
+             // Return nil as the state is inconsistent
+             return nil
         }
 
         // Log via DateFormatter
@@ -482,9 +540,11 @@ class DatabaseService: ObservableObject {
         formatter.dateStyle = .short // Use .short as requested
         formatter.timeStyle = .none
         let dateStr = formatter.string(from: date)
-        print("[DB-RawValues] Fetched \(dict.count) values for date \(dateStr).")
+        // Use 'results' variable
+        print("[DB-RawValues] Fetched \(results.count) values for date \(dateStr).")
 
-        return (date, dict)
+        // Use 'results' variable
+        return (date, results)
     }
 
 
@@ -525,9 +585,9 @@ class DatabaseService: ObservableObject {
          var priorityNode: String? = nil
 
          // Iterate for score (max 1 row due to LIMIT 1)
-         // LEARNING (Reference App): Iterate even for LIMIT 1 queries.
+         // LEARNING: Iterate even for LIMIT 1 queries.
          for row in scoreRows {
-             // LEARNING (Reference App): Use explicit Int32 index.
+             // LEARNING: Use explicit Int32 index.
              if let scoreInt64 = try? row.getInt(Int32(0)) {
                  displayScore = Int(scoreInt64)
              }
@@ -535,9 +595,9 @@ class DatabaseService: ObservableObject {
          }
 
          // Iterate for priority (max 1 row due to LIMIT 1)
-         // LEARNING (Reference App): Iterate even for LIMIT 1 queries.
+         // LEARNING: Iterate even for LIMIT 1 queries.
          for row in priorityRows {
-             // LEARNING (Reference App): Use explicit Int32 index.
+             // LEARNING: Use explicit Int32 index.
              priorityNode = try? row.getString(Int32(0))
              break // Exit loop after processing the first (only) row
          }
