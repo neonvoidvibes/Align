@@ -273,19 +273,20 @@ class DatabaseService: ObservableObject {
      // MARK: - Raw Value Operations (for Analysis)
 
      // Save raw values - Synchronous
-     func saveRawValues(values: [String: Double], for date: Date) throws {
-          let dateInt = dateToInt(date)
-          print("[DB-RawValues] Saving \(values.count) values for date \(dateInt)...")
-           // Use synchronous transaction - Use only trailing closure
-           try connection.transaction { conn in
-               let sql = "INSERT OR REPLACE INTO RawValues (date, category, value) VALUES (?, ?, ?);"
-               for (category, value) in values {
-                   let params: [Value] = [.integer(Int64(dateInt)), .text(category), .real(value)]
-                   _ = try conn.execute(sql, params)
-               }
-           }
-          print("✅ [DB-RawValues] Saved values for date \(dateInt).")
-     }
+    func saveRawValues(values: [String: Double], for date: Date) throws {
+        let dateInt = dateToInt(date)
+        print("[DB-RawValues] Saving \(values.count) values for date \(dateInt)...")
+        let sql = "INSERT OR REPLACE INTO RawValues (date, category, value) VALUES (?, ?, ?);"
+        for (category, value) in values {
+            let params: [Value] = [
+                .integer(Int64(dateInt)),
+                .text(category),
+                .real(value)
+            ]
+            _ = try connection.execute(sql, params)
+        }
+        print("✅ [DB-RawValues] Saved values for date \(dateInt).")
+    }
 
      // Fetch raw values for a specific date - Synchronous
      func fetchRawValues(for date: Date) throws -> [String: Double] {

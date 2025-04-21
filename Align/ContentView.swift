@@ -228,7 +228,7 @@ struct ContentView: View {
 
 // Previews remain the same
 struct ContentView_Previews: PreviewProvider {
-    @StateObject static var previewDbService = DatabaseService()
+    @StateObject static var previewDbService = try! DatabaseService()
     static let previewLlmService = LLMService.shared // Use singleton for preview too
      // Instantiate CycleDataManager with preview DB service
      @StateObject static var previewCycleData = CycleDataManager(databaseService: previewDbService)
