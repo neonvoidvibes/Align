@@ -1,95 +1,109 @@
 import Foundation
-import OpenAI // Using the swift-openai-responses SDK module
+// Remove: import OpenAI
 
-@MainActor // Ensure service methods are called on the main actor
+@MainActor
 final class LLMService {
     static let shared = LLMService()
 
-    // Client from swift-openai-responses SDK
-    private let openAIClient: ResponsesAPI
+    // Store your API Gateway Invoke URL here
+    // IMPORTANT: Replace with the ACTUAL Invoke URL you copied from API Gateway Step 7!
+    private let apiGatewayEndpoint = URL(string: "YOUR_API_GATEWAY_INVOKE_URL_HERE/chat")! // Example: https://abc123xyz.execute-api.us-east-1.amazonaws.com/v1/chat
 
+    // Remove OpenAI client initialization
     private init() {
-        // TODO: [SECURITY] In production, the API key should ideally be fetched securely at runtime (e.g., Remote Config) or requests proxied through your own backend, not loaded directly here even via APIConfiguration.
-        let apiKey = APIConfiguration.openAIAPIKey
-        self.openAIClient = ResponsesAPI(authToken: apiKey)
-        print("LLMService initialized with ResponsesAPI client (using development key loading).")
+         print("LLMService initialized to use API Gateway Proxy.")
     }
 
-    // Helper function to create a Model type from its ID string
-    private func createModel(from id: String) -> Model {
-        // Add validation for supported model IDs
-        // Align PRD/Analysis uses gpt-4o specifically for chat agent
-        guard ["gpt-4o"].contains(id) else {
-             fatalError("❌ Unsupported model ID requested: \(id). Only 'gpt-4o' is currently configured for Align.")
-        }
+    // Remove createModel helper if no longer needed
 
-        guard let data = "\"\(id)\"".data(using: .utf8),
-              let model = try? JSONDecoder().decode(Model.self, from: data) else {
-             // This might indicate an issue with the SDK's Model type or the ID string format
-            fatalError("❌ Failed to create Model enum/struct from validated id string: \(id)")
-        }
-        print("[LLMService] Using model: \(id)") // Log which model is being used
-        return model
-    }
-
-    /// Generates a conversational response (plain text).
+    /// Generates a conversational response by calling the backend proxy.
     func generateChatResponse(systemPrompt: String, userMessage: String, context: String? = nil) async throws -> String {
-        let fullUserMessage = (context != nil && !context!.isEmpty) ? "\(context!)\n\n---\n\nUser: \(userMessage)" : "User: \(userMessage)"
-        print("LLMService: Generating chat response for user message: '\(userMessage.prefix(50))...' (Context included: \(context != nil && !context!.isEmpty))")
+        print("LLMService: Calling API Gateway Proxy for user message: '\(userMessage.prefix(50))...'")
 
-        let model = createModel(from: "gpt-4o") // Align uses gpt-4o for chat
+        // Construct the messages array expected by OpenAI (and your proxy)
+        var messagesPayload: [[String: String]] = []
+        messagesPayload.append(["role": "system", "content": systemPrompt])
+        if let ctx = context, !ctx.isEmpty {
+            // Add context as a pseudo-user message? Or combine with system prompt?
+            // Let's add it before the actual user message for clarity
+             messagesPayload.append(["role": "user", "content": "Relevant Context:\n\(ctx)"])
+        }
+        messagesPayload.append(["role": "user", "content": userMessage])
 
-        let request = Request(
-            model: model,
-            input: .text(fullUserMessage), // Pass combined context + user message
-            instructions: systemPrompt
-        )
+        // Construct the request body for YOUR proxy
+        let requestBodyPayload: [String: Any] = [
+            // Match the model expected by your Lambda or OpenAI
+            "model": "gpt-4o",
+            "messages": messagesPayload
+            // Add other parameters like temperature if your Lambda forwards them
+        ]
+
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: requestBodyPayload) else {
+            print("LLMService Error: Failed to serialize request body.")
+            throw LLMError.sdkError("Failed to create request body.") // Use sdkError for internal issues too
+        }
+
+        var request = URLRequest(url: apiGatewayEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Add any necessary authentication headers for YOUR API Gateway endpoint here (e.g., API Key if configured)
+        // request.setValue("YOUR_API_GATEWAY_API_KEY", forHTTPHeaderField: "x-api-key")
+        request.httpBody = httpBody
 
         do {
-            // Add 'try' before the await call
-            let result: Result<Response, Response.Error> = try await openAIClient.create(request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
-            // Handle the Result
-            switch result {
-            case .success(let response):
-                let replyContent = response.outputText
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw LLMError.unexpectedResponse("Invalid response from proxy server.")
+            }
 
-                // Check if the non-optional content is empty
-                if replyContent.isEmpty {
-                     print("LLMService: Received empty outputText, potentially a refusal or empty response.")
-                     throw LLMError.unexpectedResponse("Received empty text content from LLM")
+            print("Proxy Response Status Code: \(httpResponse.statusCode)")
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                // Try to decode error message from proxy if available
+                if let errorData = try? JSONDecoder().decode([String: String].self, from: data),
+                   let errorMessage = errorData["error"] {
+                    throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)): \(errorMessage)")
+                } else {
+                    // Fallback if error decoding fails
+                     let responseString = String(data: data, encoding: .utf8) ?? "No response body"
+                     print("Raw Proxy Error Response: \(responseString)")
+                    throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)): \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
                 }
-
-                print("LLMService: Received chat response.")
-                return replyContent
-
-            case .failure(let error):
-                print("LLMService: OpenAI API Error - \(error)")
-                throw LLMError.sdkError("API Error: \(error.localizedDescription)")
             }
+
+            // Decode the successful response { "reply": "..." } from YOUR proxy
+            guard let responsePayload = try? JSONDecoder().decode([String: String].self, from: data),
+                  let reply = responsePayload["reply"] else {
+                 let responseString = String(data: data, encoding: .utf8) ?? "Invalid response body"
+                 print("Raw Proxy Success Response (but failed decode): \(responseString)")
+                throw LLMError.unexpectedResponse("Failed to decode 'reply' from proxy response.")
+            }
+
+            print("LLMService: Received response from proxy.")
+            return reply
+
         } catch let error as LLMError {
-             throw error
+             print("LLMService Error: \(error.localizedDescription)")
+             throw error // Re-throw known LLMError types
         } catch {
-            print("LLMService: Error during chat generation - \(error)")
-            throw LLMError.sdkError("Network or other error: \(error.localizedDescription)")
+            print("LLMService URLSession Error: \(error)")
+            throw LLMError.sdkError("Network request failed: \(error.localizedDescription)")
         }
     }
 
-    // Note: generateStructuredOutput is not needed for Align's current requirement (basic chat)
-    // It can be added later if insight generation is implemented.
+    // Keep LLMError enum, remove types not used (decodingError) if structured output isn't implemented
+     enum LLMError: Error, LocalizedError, Equatable {
+         case sdkError(String)
+         case unexpectedResponse(String)
+         // case decodingError(String) // Remove if not generating structured output
 
-    // Define potential errors - Added Equatable conformance
-    enum LLMError: Error, LocalizedError, Equatable {
-        case sdkError(String)
-        case unexpectedResponse(String)
-        // case decodingError(String) // Not needed for basic chat
-
-        var errorDescription: String? {
-            switch self {
-            case .sdkError(let reason): return "LLM Service Error: \(reason)"
-            case .unexpectedResponse(let reason): return "Unexpected LLM response: \(reason)"
-            // case .decodingError(let reason): return "JSON Decoding Error: \(reason)"
-            }
-        }
-    }
+         var errorDescription: String? {
+             switch self {
+             case .sdkError(let reason): return "LLM Service Error: \(reason)"
+             case .unexpectedResponse(let reason): return "Unexpected LLM response: \(reason)"
+             // case .decodingError(let reason): return "JSON Decoding Error: \(reason)"
+             }
+         }
+     }
 }

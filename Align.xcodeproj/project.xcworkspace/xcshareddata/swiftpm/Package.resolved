@@ -1,5 +1,5 @@
 {
-  "originHash" : "a1a4cffeaf11db567a3b4164f4e91e7ac6f318d28c707ed360502b7f2e0c05cf",
+  "originHash" : "9986f788ac4f5d51efb8001c2bd1083970b47fb17e3c4c43151610cdb2cd6f5d",
   "pins" : [
     {
       "identity" : "libsql-swift",
@@ -8,51 +8,6 @@
       "state" : {
         "revision" : "d6c16af9a8bf5a096c5eaca1fd4dac845242ef87",
         "version" : "3.1.0"
-      }
-    },
-    {
-      "identity" : "metacodable",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/SwiftyLab/MetaCodable.git",
-      "state" : {
-        "revision" : "7246a7fde82c8ca2c361e9537a5058646ac8aab7",
-        "version" : "1.4.0"
-      }
-    },
-    {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser.git",
-      "state" : {
-        "revision" : "41982a3656a71c768319979febd796c6fd111d5c",
-        "version" : "1.5.0"
-      }
-    },
-    {
-      "identity" : "swift-collections",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-collections.git",
-      "state" : {
-        "revision" : "671108c96644956dddcd89dd59c203dcdb36cec7",
-        "version" : "1.1.4"
-      }
-    },
-    {
-      "identity" : "swift-openai-responses",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/m1guelpf/swift-openai-responses.git",
-      "state" : {
-        "revision" : "2e8a97e7eba88792c04f9a53e2dfa89489d35614",
-        "version" : "1.0.4"
-      }
-    },
-    {
-      "identity" : "swift-syntax",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax.git",
-      "state" : {
-        "revision" : "0687f71944021d616d34d922343dcef086855920",
-        "version" : "600.0.1"
       }
     }
   ],

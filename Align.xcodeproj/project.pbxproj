@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		64C8CABE2DB5B4DA001E8527 /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = 64C8CABD2DB5B4DA001E8527 /* OpenAI */; };
 		64C8CAC12DB5B5A5001E8527 /* Libsql in Frameworks */ = {isa = PBXBuildFile; productRef = 64C8CAC02DB5B5A5001E8527 /* Libsql */; };
 /* End PBXBuildFile section */
 
@@ -15,9 +14,33 @@
 		64EC16BD2DB5781300D45D8C /* Align.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Align.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		64CC389D2DB5C81900E0DB94 /* Exceptions for "Align" folder in "Align" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				.gitignore,
+			);
+			target = 64EC16BC2DB5781300D45D8C /* Align */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		64CC389E2DB5C81900E0DB94 /* Exceptions for "Align" folder in "Compile Sources" phase from "Align" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = 64EC16B92DB5781300D45D8C /* Sources */;
+			membershipExceptions = (
+				.gitignore,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		64EC16BF2DB5781300D45D8C /* Align */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				64CC389D2DB5C81900E0DB94 /* Exceptions for "Align" folder in "Align" target */,
+				64CC389E2DB5C81900E0DB94 /* Exceptions for "Align" folder in "Compile Sources" phase from "Align" target */,
+			);
 			path = Align;
 			sourceTree = "<group>";
 		};
@@ -28,7 +51,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				64C8CABE2DB5B4DA001E8527 /* OpenAI in Frameworks */,
 				64C8CAC12DB5B5A5001E8527 /* Libsql in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -72,7 +94,6 @@
 			);
 			name = Align;
 			packageProductDependencies = (
-				64C8CABD2DB5B4DA001E8527 /* OpenAI */,
 				64C8CAC02DB5B5A5001E8527 /* Libsql */,
 			);
 			productName = Align;
@@ -104,7 +125,6 @@
 			mainGroup = 64EC16B42DB5781300D45D8C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				64C8CABC2DB5B4DA001E8527 /* XCRemoteSwiftPackageReference "swift-openai-responses" */,
 				64C8CABF2DB5B5A5001E8527 /* XCRemoteSwiftPackageReference "libsql-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -339,14 +359,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		64C8CABC2DB5B4DA001E8527 /* XCRemoteSwiftPackageReference "swift-openai-responses" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/m1guelpf/swift-openai-responses.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.4;
-			};
-		};
 		64C8CABF2DB5B5A5001E8527 /* XCRemoteSwiftPackageReference "libsql-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/tursodatabase/libsql-swift";
@@ -358,11 +370,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		64C8CABD2DB5B4DA001E8527 /* OpenAI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 64C8CABC2DB5B4DA001E8527 /* XCRemoteSwiftPackageReference "swift-openai-responses" */;
-			productName = OpenAI;
-		};
 		64C8CAC02DB5B5A5001E8527 /* Libsql */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 64C8CABF2DB5B5A5001E8527 /* XCRemoteSwiftPackageReference "libsql-swift" */;
