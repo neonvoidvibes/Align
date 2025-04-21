@@ -139,15 +139,20 @@ class ChatViewModel: ObservableObject {
             if let emb = queryEmb {
                 do {
                     let items = try await databaseService.findSimilarChatMessages(to: emb, limit: 5)
-                    var ctx = ["Context items (most relevant first):"]
+                    // Make header clearer about RAG source
+                    var ctx = ["Context from Past Entries (most relevant first):"]
                     for item in items {
                         let filtered = filterPII(text: item.text)
-                        var meta = "(\(item.sourceType.rawValue), \(item.date.formatted(date: .numeric, time: .shortened))"
-                        if item.isStarred { meta += ", STARRED" }
-                        meta += ")"
-                        ctx.append("- \(meta): \(filtered)")
+                        // Ensure (STARRED) is prominent if present
+                        let starredMarker = item.isStarred ? " **(STARRED)**" : ""
+                        let meta = "(\(item.sourceType.rawValue), \(item.date.formatted(date: .numeric, time: .shortened))\(starredMarker))"
+                        ctx.append("- \(meta): \(filtered)") // Add marker to metadata
                     }
-                    ragContext = ctx.joined(separator: "\n")
+                    if items.count > 0 { // Only add context if items were found
+                        ragContext = ctx.joined(separator: "\n")
+                    } else {
+                         print("[ChatViewModel] RAG search successful, but no similar past entries found.")
+                    }
                 } catch {
                     print("‼️ [ChatViewModel] RAG retrieval failed: \(error)")
                 }
@@ -155,26 +160,32 @@ class ChatViewModel: ObservableObject {
 
             var scoreCtx = ""
             do {
-                let (s, p) = try databaseService.getLatestDisplayScoreAndPriority()
-                if let s = s, let p = p {
-                    scoreCtx = "Current Score: \(s)/100. Priority: \(p)."
-                } else if let s = s {
-                    scoreCtx = "Current Score: \(s)/100."
-                } else if let p = p {
-                    scoreCtx = "Priority: \(p)."
+                let (_, p) = try databaseService.getLatestDisplayScoreAndPriority() // Fetch both, but only use priority
+                 // Only include priority, not score
+                if let p = p {
+                    scoreCtx = "Current Priority: \(p)."
+                } else {
+                     scoreCtx = "Current Priority: Not set." // Indicate if priority is missing
                 }
             } catch {
                 print("‼️ [ChatViewModel] Error fetching score/priority: \(error)")
             }
 
-            let systemPrompt = SystemPrompts.chatAgentPrompt
-            let combined = [ragContext, scoreCtx].filter { !$0.isEmpty }.joined(separator: "\n")
+             // --- REMOVED Fetch Previous Day Context ---
+             // RAG context + prompt guidance handles historical relevance better
 
-            do {
-                let reply = try await llmService.generateChatResponse(
+
+             let systemPrompt = SystemPrompts.chatAgentPrompt
+              // Combine RAG context and Current Priority context
+             let combined = [ragContext, scoreCtx].filter { !$0.isEmpty }.joined(separator: "\n---\n")
+
+             print("[ChatViewModel] Combined Context for LLM:\n\(combined)") // Log combined context
+
+             do {
+                 let reply = try await llmService.generateChatResponse(
                     systemPrompt: systemPrompt,
-                    userMessage: text,
-                    context: combined.isEmpty ? nil : combined
+                    userMessage: text, // Send original user message
+                    context: combined.isEmpty ? nil : combined // Pass combined context
                 )
                 let assistantMsg = ChatMessage(role: .assistant, content: reply, timestamp: Date())
                 self.messages.append(assistantMsg)
@@ -202,7 +213,7 @@ class ChatViewModel: ObservableObject {
                     role: .assistant,
                     content: "Sorry, I encountered an error. Please try again. (\(error.localizedDescription.prefix(100))...)",
                     timestamp: Date(),
-                    isStarred: true
+                    isStarred: true // Optionally star error messages
                 )
                 self.messages.append(errorMsg)
                 self.isTyping = false
@@ -362,8 +373,14 @@ class ChatViewModel: ObservableObject {
                let i2 = order.firstIndex(of: rhs.key) {
                 return i1 < i2
             }
-            return (lhs.value.first?.lastUpdatedAt ?? .distantPast) >
-                   (rhs.value.first?.lastUpdatedAt ?? .distantPast)
+            // Handle nil or empty values for dates more robustly
+            let lhsDate = lhs.value.first?.lastUpdatedAt ?? .distantPast
+            let rhsDate = rhs.value.first?.lastUpdatedAt ?? .distantPast
+            // If dates are equal (or both nil), sort alphabetically by key as a fallback
+            if lhsDate == rhsDate {
+                 return lhs.key < rhs.key
+            }
+            return lhsDate > rhsDate
         }
         return sorted
     }

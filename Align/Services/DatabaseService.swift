@@ -379,6 +379,45 @@ class DatabaseService: ObservableObject {
          return (displayScore, priorityNode)
      }
 
+     // Fetch the score and priority node for the previous day - Synchronous
+     func getPreviousDayContext() throws -> (date: Date, displayScore: Int?, priorityNode: String?)? {
+         let calendar = Calendar.current
+         let today = calendar.startOfDay(for: Date())
+         guard let previousDay = calendar.date(byAdding: .day, value: -1, to: today) else {
+             print("[DB-Read] Could not calculate previous day.")
+             return nil
+         }
+         let previousDayInt = dateToInt(previousDay)
+
+         let scoresSql = "SELECT display_score FROM Scores WHERE date = ? LIMIT 1;"
+         let prioritySql = "SELECT node FROM PriorityNodes WHERE date = ? LIMIT 1;"
+         let params: [Value] = [.integer(Int64(previousDayInt))]
+
+         let scoreRows = try connection.query(scoresSql, params)
+         let priorityRows = try connection.query(prioritySql, params)
+
+         let scoreRow = scoreRows.first(where: { _ in true })
+         let priorityRow = priorityRows.first(where: { _ in true })
+
+         let displayScore: Int? = scoreRow.flatMap { row -> Int? in
+             guard let int64Value = try? row.getInt(0) else { return nil }
+             return Int(int64Value)
+         }
+         let priorityNode: String? = priorityRow.flatMap { row -> String? in
+             try? row.getString(0)
+         }
+
+         // Only return if we found at least one piece of data for the previous day
+         if displayScore != nil || priorityNode != nil {
+             print("[DB-Read] Fetched previous day (\(previousDayInt)) - Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A")")
+             return (date: previousDay, displayScore: displayScore, priorityNode: priorityNode)
+         } else {
+              print("[DB-Read] No score or priority found for previous day (\(previousDayInt)).")
+              return nil
+         }
+     }
+
+
       // Helper to convert Date to YYYYMMDD Int
       private func dateToInt(_ date: Date) -> Int {
           let formatter = DateFormatter()
