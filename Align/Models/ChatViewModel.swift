@@ -77,12 +77,23 @@ class ChatViewModel: ObservableObject {
     }
 
     // Public function to start a new chat (e.g., from a button)
+    // This should completely reset the state for the UI
     func startNewChat() {
-        startNewChatInternal()
-        // Add initial assistant message for new chat started by user action
-        let initialMessage = ChatMessage(role: .assistant, content: "Let's start a fresh reflection. How are things?", timestamp: Date())
-        self.messages.append(initialMessage)
-        // Consider saving this initial message immediately? Or wait for user?
+         print("[ChatViewModel] Starting new chat via public func...")
+         // Create a completely new Chat object
+         let newChat = Chat()
+         self.currentChat = newChat
+         self.currentChatId = newChat.id
+         // Create the standard initial message
+         let initialMessage = ChatMessage(role: .assistant, content: "How's your day going? Tell me about your energy, work, and home life.", timestamp: Date())
+         // Reset published properties
+         self.messages = [initialMessage] // Reset messages with only the initial one
+         self.chatTitle = newChat.title
+         self.inputText = ""
+         self.isTyping = false
+         // NOTE: We are NOT saving the new Chat or initial message to DB here.
+         // It will be saved implicitly when the user sends the *first* message of the new chat.
+         // Or, we could explicitly save the empty chat stub if desired. Let's keep it implicit for now.
     }
 
     // Send message logic

@@ -3,29 +3,40 @@ import SwiftUI
 struct TabNavigationView: View {
     @Binding var currentView: AppView
     var onSettingsClick: () -> Void
-    var onNewChatClick: () -> Void // Add callback for new chat
+    var onNewChatClick: () -> Void
     @EnvironmentObject private var themeManager: ThemeManager
-    // Selected: Original 54 * 0.75 = 40.5 -> 41
-    // Unselected: Half of new selected = 40.5 / 2 = 20.25 -> 20
-    // Height: Original 3 * 1.25 = 3.75
+
+    // Define views array and geometry constants
+    private let views: [AppView] = [.history, .journal, .loop] // Order matters for display
     private let selectedNavBarWidth: CGFloat = 41
     private let unselectedNavBarWidth: CGFloat = 20
     private let navBarHeight: CGFloat = 3.75
 
+    // Computed property for header title based on currentView
+    private var headerTitle: String {
+        switch currentView {
+        case .history: return "History"
+        case .journal: return "Journal"
+        case .loop: return "Loop"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 12) { // Adjust vertical spacing as needed
 
-            // Row 1: Navigation Bars (Centered) - PLACED FIRST
+            // Row 1: Navigation Bars (Refactored ForEach)
             HStack(spacing: 8) {
-                ForEach(0..<2) { index in
-                    let isActive = (index == 0 && currentView == .journal) || (index == 1 && currentView == .loop)
-                    let targetView: AppView = index == 0 ? .journal : .loop
+                ForEach(views, id: \.self) { targetView in // Iterate over the views array
+                    let isActive = (currentView == targetView) // Calculate active state inline
 
                     Capsule()
+                         // Use ternary operator for fill
                         .fill(isActive ? themeManager.accentColor : Color.gray.opacity(0.3))
+                         // Use ternary operator for frame width
                         .frame(width: isActive ? selectedNavBarWidth : unselectedNavBarWidth, height: navBarHeight)
-                        .contentShape(Rectangle()) // Increase tap area
+                        .contentShape(Rectangle())
                         .onTapGesture {
+                            // Update currentView directly to the targetView from the loop
                             if currentView != targetView {
                                 currentView = targetView
                             }
@@ -33,67 +44,64 @@ struct TabNavigationView: View {
                         .animation(.easeInOut(duration: 0.2), value: isActive)
                 }
             }
-            // Centered by default
 
-            // Row 2: Settings Icon and Header Title (Aligned Vertically) - PLACED SECOND (BELOW BARS)
-            HStack(alignment: .firstTextBaseline) {
+            // Row 2: Settings Icon and Header Title (Using previous fix with opacity)
+            HStack(alignment: .center) {
                 // Settings Button
                 Button(action: onSettingsClick) {
-                    // Align the rectangles to the leading edge (left)
-                    VStack(alignment: .leading, spacing: 4) { // Adjust spacing if needed for larger bars
-                        // Increase bar size by 25% (width and height)
-                        Rectangle()
-                            .frame(width: 30, height: 2.5) // 24 * 1.25 = 30, 2 * 1.25 = 2.5
-                            .foregroundColor(.primary)
-                        Rectangle()
-                            .frame(width: 25, height: 2.5) // 20 * 1.25 = 25, 2 * 1.25 = 2.5
-                            .foregroundColor(.primary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Rectangle().frame(width: 30, height: 2.5).foregroundColor(.primary)
+                        Rectangle().frame(width: 25, height: 2.5).foregroundColor(.primary)
                     }
-                    // Increase frame size by 25% (30 * 1.25 = 37.5 -> 38)
-                    .frame(width: 38, height: 38)
                 }
-                .padding(.leading) // Keep padding for spacing from edge
-                // Remove padding, use offset instead for visual shift only
-                // .padding(.top, 8)
-                .offset(y: 6) // Apply vertical offset to shift icon down
+                .frame(width: 38, height: 38) // Consistent frame
+                .padding(.leading)
 
-                Spacer() // Pushes title towards center/right
+                Spacer()
 
                 // Header Title
-                Text(currentView == .journal ? "Journal" : "Loop")
-                   .font(.futura(size: 32, weight: .bold))
+                Text(headerTitle)
+                    .font(.futura(size: 32, weight: .bold))
 
-                Spacer() // Pushes title towards center/left
+                Spacer()
 
-                // New Chat Button (Mirroring Settings Button)
-                Button(action: {
-                    // Call the new callback
-                    onNewChatClick()
-                }) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 22)) // Adjust size as needed
-                        .foregroundColor(themeManager.accentColor)
-                        // Match new larger settings button frame size
-                        .frame(width: 38, height: 38)
+                // New Chat Button Area (always present for layout, hidden with opacity)
+                Button(action: onNewChatClick) {
+                     Image(systemName: "square.and.pencil")
+                         .font(.system(size: 22))
+                         .foregroundColor(.primary) // Use primary text color
                 }
-                 .padding(.trailing) // Keep padding consistent
-                 .offset(y: 6) // Apply vertical offset consistent with settings icon
+                .frame(width: 38, height: 38) // Consistent frame
+                .padding(.trailing)
+                .opacity(currentView == .journal ? 1.0 : 0.0) // Control visibility
+                .disabled(currentView != .journal) // Disable interaction when hidden
 
-            }
+            } // End HStack for Header Row
 
-        }
-        // Overall top positioning handled by ContentView
-    }
-}
+        } // End Main VStack
+    } // End body
+} // End struct
 
-// Preview needs to be updated to provide the new callback
+// Preview Provider (can remain as is, showing different states)
 struct TabNavigationView_Previews: PreviewProvider {
     static var previews: some View {
-        TabNavigationView(
-            currentView: .constant(.journal),
-            onSettingsClick: { print("Settings Tapped") },
-            onNewChatClick: { print("New Chat Tapped") } // Provide dummy action
-        )
+        VStack {
+            TabNavigationView(
+                currentView: .constant(.history), // Start at history
+                onSettingsClick: { print("Settings Tapped") },
+                onNewChatClick: { print("New Chat Tapped") }
+            )
+            TabNavigationView(
+                currentView: .constant(.journal), // Show journal state
+                onSettingsClick: { print("Settings Tapped") },
+                onNewChatClick: { print("New Chat Tapped") }
+            )
+            TabNavigationView(
+                currentView: .constant(.loop), // Show loop state
+                onSettingsClick: { print("Settings Tapped") },
+                onNewChatClick: { print("New Chat Tapped") }
+            )
+        }
         .environmentObject(ThemeManager())
         .padding()
         .background(Color(UIColor.systemGray6))

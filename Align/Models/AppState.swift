@@ -2,12 +2,14 @@ import SwiftUI
 import Combine
 
 enum AppView {
+    case history // Add history as the first view
     case journal
     case loop
 }
 
 class AppState: ObservableObject {
-    @Published var currentView: AppView = .journal
+    // Start on the new History view by default
+    @Published var currentView: AppView = .history
     @Published var accentColor: Color = Color(hex: "00FFC2")
     @Published var streakCount: Int = 3
     @Published var moodValue: Double = 75

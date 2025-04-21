@@ -5,8 +5,10 @@ struct ContentView: View {
     @EnvironmentObject private var themeManager: ThemeManager
 
     // Receive services from AlignApp
-    @StateObject var databaseService: DatabaseService // Pass as StateObject if JournalView modifies/observes it directly
-    let llmService: LLMService // Pass as simple let if JournalView only calls methods
+    @StateObject var databaseService: DatabaseService
+    let llmService: LLMService
+    // Create ChatViewModel here to be passed down
+    @StateObject private var chatViewModel: ChatViewModel
 
     // State for Settings Panel
     @State private var showSettings = false
@@ -15,11 +17,18 @@ struct ContentView: View {
     @State private var selectedNodeId: String? = nil
     // State for New Chat Confirmation
     @State private var showNewChatConfirmation = false
-    // State for Chat History Panel
-    @State private var showChatHistory = false
+    // State for Chat History Panel (Not implemented as panel yet)
+    @State private var showChatHistory = false // Placeholder state if needed later
 
     // Data manager needed for Node Info
-    @StateObject private var cycleData = CycleDataManager()
+    @StateObject private var cycleData = CycleDataManager() // Keep for Loop view
+
+    // Initialize ChatViewModel in init
+    init(databaseService: DatabaseService, llmService: LLMService) {
+        _databaseService = StateObject(wrappedValue: databaseService) // Use StateObject init syntax
+        self.llmService = llmService
+        _chatViewModel = StateObject(wrappedValue: ChatViewModel(databaseService: databaseService, llmService: llmService))
+    }
 
     // Computed property to determine if any modal/panel is showing
     private var isModalOrPanelShowing: Bool {
@@ -27,13 +36,13 @@ struct ContentView: View {
     }
     // Computed property for dimming overlay (excludes confirmation modal)
     private var showDimmingOverlay: Bool {
-         showSettings || showNodeInfo || showChatHistory
+         // Include confirmation modal in dimming
+         showSettings || showNodeInfo || showChatHistory || showNewChatConfirmation
     }
      // Computed property to disable main content interaction
      private var mainContentDisabled: Bool {
           showNodeInfo || showNewChatConfirmation || showSettings || showChatHistory
      }
-
 
     var body: some View {
         GeometryReader { geometry in
@@ -41,34 +50,27 @@ struct ContentView: View {
              var mainContentOffsetX: CGFloat {
                  if showSettings {
                      return geometry.size.width * 0.9
-                 } else if showChatHistory {
-                     return -geometry.size.width * 0.9 // Slide other way for history
+                 } else if showChatHistory { // Placeholder logic if history becomes a panel
+                     return -geometry.size.width * 0.9
                  } else {
                      return 0
                  }
              }
              var mainContentCornerRadius: CGFloat {
-                 showSettings || showChatHistory ? 20 : 0
+                 showSettings || showChatHistory ? 20 : 0 // Placeholder logic if history becomes a panel
              }
              // --- End of geometry-dependent computed properties ---
 
             // Use a ZStack for layering effects, content, and modals
             ZStack(alignment: .leading) { // Keep leading alignment for Settings
 
-                // Layer 0: Chat History Panel (Slides in from left) - Needs to be BEHIND main content
-                // Use geometry reader's width for positioning
-                 if showChatHistory {
-                     ChatHistoryView(isPresented: $showChatHistory)
-                         .frame(width: geometry.size.width * 0.9)
-                         .transition(.move(edge: .leading)) // Adjusted from .trailing
-                         .zIndex(1) // Behind main content, but above base background
-                 }
-
+                // Layer 0: Chat History Panel (Placeholder - Currently handled by main view switch)
+                // if showChatHistory { ... }
 
                 // Layer 1: Base Background (Always present, no effects) - Can be removed if panels have solid bg
-                // Rectangle()
-                //     .fill(Color(UIColor.systemBackground))
-                //     .ignoresSafeArea()
+                 Rectangle()
+                     .fill(Color(UIColor.systemBackground))
+                     .ignoresSafeArea()
 
 
                 // Layer 2: Main content view (Moves aside for settings/history, stays put for node info/confirmation)
@@ -93,23 +95,23 @@ struct ContentView: View {
                         }
                     )
 
-                    // Switch between Journal and Cycle views
-                    if appState.currentView == .journal {
-                        // Instantiate ChatViewModel here, passing dependencies
-                        // Use @StateObject if JournalView modifies it, otherwise @ObservedObject might suffice if passed down
-                        JournalView()
-                            .environmentObject(ChatViewModel(databaseService: databaseService, llmService: llmService))
-                    } else {
-                        // Pass closure to CycleView to trigger NodeInfo presentation
-                        CycleView(presentNodeInfo: { nodeId in
-                            selectedNodeId = nodeId
-                            // Ensure only modal animation runs if settings isn't showing
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                showNodeInfo = true
-                            }
-                        })
-                        .environmentObject(cycleData)
-                    }
+                    // Switch between History, Journal, and Loop views
+                    switch appState.currentView {
+                    case .history:
+                         // Use the ChatHistoryView shell - controlled by main view state
+                         ChatHistoryView(isPresented: .constant(true)) // Needs adjustment later if controlled by side panel
+                    case .journal:
+                         // JournalView now gets ChatViewModel from environment
+                         JournalView()
+                    case .loop:
+                         // Pass closure to CycleView to trigger NodeInfo presentation
+                         CycleView(presentNodeInfo: { nodeId in
+                             selectedNodeId = nodeId
+                             withAnimation(.easeInOut(duration: 0.3)) {
+                                 showNodeInfo = true
+                             }
+                         })
+                    } // End switch appState.currentView
 
                     Spacer()
                 }
@@ -128,7 +130,7 @@ struct ContentView: View {
                             showSettings = false
                         }
                     }
-                    if showChatHistory {
+                    if showChatHistory { // Placeholder logic
                          withAnimation(.easeInOut(duration: 0.3)) {
                             showChatHistory = false
                         }
@@ -137,29 +139,30 @@ struct ContentView: View {
                 }
                 .zIndex(2) // Main content sits above history panel
 
-                // Layer 3: Unified Effect Overlay (Blur + Dimming)
-                // Always present, but opacity controlled by state.
-                Rectangle() // Base shape for effects
-                    .fill(.clear) // Transparent fill
-                    .background(.thinMaterial) // Apply blur using material
-                    .overlay( // Apply dimming on top of blur
-                        Color.black.opacity(0.4)
-                    )
-                    .ignoresSafeArea() // Cover entire screen uniformly
-                    // Allow hit testing ONLY when NodeInfo is showing (to dismiss it)
-                    .allowsHitTesting(showNodeInfo)
-                    .onTapGesture {
-                        // Dismiss NodeInfo if tapped when showing
-                        if showNodeInfo {
-                             withAnimation(.easeInOut(duration: 0.3)) {
-                                showNodeInfo = false
-                             }
-                        }
-                    }
-                    // Control visibility using opacity, animated by the ZStack's animation modifier
-                     .opacity(showDimmingOverlay ? 1.0 : 0.0) // Use computed property
-                    // Removed .transition(.opacity) as opacity modifier handles the fade
-                     .zIndex(3) // Dimming effect overlay sits above main content and side panels
+                // Unified Dimming/Blur effect controlled by showDimmingOverlay
+                 Rectangle() // Base shape for effects
+                     .fill(.clear) // Transparent fill
+                     .background(.thinMaterial) // Apply blur using material
+                     .overlay( // Apply dimming on top of blur
+                         Color.black.opacity(0.4)
+                     )
+                     .ignoresSafeArea() // Cover entire screen uniformly
+                     .allowsHitTesting(showNodeInfo || showSettings || showChatHistory) // Allow taps for panels too
+                     .onTapGesture {
+                         // Dismiss NodeInfo if tapped when showing
+                         if showNodeInfo {
+                              withAnimation(.easeInOut(duration: 0.3)) {
+                                 showNodeInfo = false
+                              }
+                         }
+                         // Dismiss settings or history if they are panels and tap outside
+                         if showSettings {
+                              withAnimation(.easeInOut(duration: 0.3)) { showSettings = false }
+                         }
+                         // if showChatHistory { ... } // Add if history becomes a panel
+                     }
+                     .opacity(showDimmingOverlay ? 1.0 : 0.0) // Control visibility
+                     .zIndex(3) // Ensure it's above panels but below modals
 
 
                 // Layer 4: Settings panel (Slides in from left)
@@ -170,7 +173,7 @@ struct ContentView: View {
                         .zIndex(4) // Settings above main content & history
                 }
 
-                 // History panel was added as Layer 0
+                 // History panel was added as Layer 0 - Handled by main view switch for now
 
                 // Layer 5: NodeInfoView modal content (Appears centrally)
                 if showNodeInfo, let nodeId = selectedNodeId {
@@ -197,24 +200,31 @@ struct ContentView: View {
                          confirmText: "Start New",
                          confirmAction: {
                              // Action: Tell ChatViewModel to start new chat
-                              // Placeholder: Access ChatViewModel via environmentObject later
-                              print("Confirmed: Start New Chat")
+                              chatViewModel.startNewChat() // Call the actual function
+                              print("Confirmed: Start New Chat action executed.")
                               showNewChatConfirmation = false
-                              // chatViewModel.startNewChat() // Implement this later
                          },
                          cancelAction: {
                              showNewChatConfirmation = false
                          }
                      )
+                     // Center the modal using a frame that fills the screen
+                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                     .background(Color.clear) // Ensure wrapper is clear
                      .transition(.opacity.combined(with: .scale(scale: 0.95)))
                      .zIndex(6) // Highest level modal
                 }
-            }
+
+            } // End ZStack
+            // Provide ChatViewModel and CycleData to the environment for child views within the ZStack
+            .environmentObject(chatViewModel)
+            .environmentObject(cycleData)
             // Animate the appearance/disappearance of conditional layers (Effect Overlay, Modals, Panels)
             .animation(.easeInOut(duration: 0.3), value: isModalOrPanelShowing) // Use combined state
-        }
-    }
-}
+
+        } // End GeometryReader
+    } // End body
+} // End struct
 
 // Previews remain the same
 struct ContentView_Previews: PreviewProvider {
