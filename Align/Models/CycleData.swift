@@ -118,13 +118,36 @@ class CycleDataManager: ObservableObject {
                 // No need to fetch category scores separately anymore
                 print("[CycleDataManager] Received \(categoryScores.count) category scores from DB.")
 
+                // --- Fetch Previous Day's Scores for Change Calculation ---
+                // Determine the date for which scores were fetched
+                // We need the date associated with the fetched scores to find the *previous* day's scores
+                // Let's modify getLatest... again slightly to return the date reliably
+                // For now, assume categoryScores relate to 'today' conceptually if latestDate was nil (edge case)
+                // This part needs refinement based on how getLatest... determines the date implicitly
+                let calendar = Calendar.current
+                // Ideally, get 'latestDate' from the DB query result directly
+                // As a temporary measure, let's assume the scores are for the current day if no date was explicitly returned
+                // This assumption might be wrong if analysis runs late.
+                let dateForScores = Date() // Placeholder - Needs date from DB
+                var previousCategoryScores: [String: Double] = [:]
+                if let previousDate = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for:dateForScores)) {
+                    previousCategoryScores = (try? await databaseService.fetchCategoryScores(for: previousDate)) ?? [:]
+                    let prevDateString = previousDate.formatted(date: .abbreviated, time: .omitted)
+                    print("[CycleDataManager] Fetched \(previousCategoryScores.count) category scores for previous date \(prevDateString)")
+                } else {
+                     print("[CycleDataManager] Could not calculate previous date.")
+                     previousCategoryScores = [:]
+                }
+                // --- End Fetch Previous Day's Scores ---
+
+
                 await MainActor.run {
                     self.totalScore = displayScore
                     self.currentPriorityNode = currentPriority
                     updatePriorityDisplay() // Update priority card based on node and total score
 
-                    // Update individual step/input scores based on categoryScores
-                    updateFlowStepsAndInputs(with: categoryScores)
+                    // Update individual step/input scores based on categoryScores and previousCategoryScores
+                    updateFlowStepsAndInputs(currentScores: categoryScores, previousScores: previousCategoryScores)
 
                     print("[CycleDataManager] Loaded - Score: \(self.totalScore), Priority: \(self.currentPriorityNode)")
                 }
@@ -135,7 +158,8 @@ class CycleDataManager: ObservableObject {
                     self.totalScore = 0
                     self.currentPriorityNode = "Boost Energy"
                     updatePriorityDisplay()
-                    updateFlowStepsAndInputs(with: [:]) // Reset scores with empty dictionary
+                    // Reset scores with empty dictionaries
+                    updateFlowStepsAndInputs(currentScores: [:], previousScores: [:])
                 }
             }
         }
@@ -216,29 +240,31 @@ class CycleDataManager: ObservableObject {
          return nodeInfoMap[nodeId] ?? (nodeId, "Information about this node is not available.", "Weight information not available.")
     }
 
-    // Helper function to update FlowStep and EnergyInput scores
-    private func updateFlowStepsAndInputs(with categoryScores: [String: Double]) {
+    // Helper function to update FlowStep and EnergyInput scores, now including previous scores
+    private func updateFlowStepsAndInputs(currentScores: [String: Double], previousScores: [String: Double]) {
         // Update FlowSteps
         // Correct loop: Iterate directly over indices
         for i in flowSteps.indices {
             let stepId = flowSteps[i].id
-            if let normalizedScore = categoryScores[stepId] {
-                // Convert normalized score (0-1) to display score (0-100)
-                flowSteps[i].score = Int(round(normalizedScore * 100))
-                print("  [CycleDataUpdate] Updated FlowStep '\(stepId)' score to \(flowSteps[i].score)")
-            } else {
-                flowSteps[i].score = 0 // Default to 0 if not found
-                print("  [CycleDataUpdate] Category score not found for FlowStep '\(stepId)', setting score to 0")
-            }
-            // TODO: Calculate 'change' based on previous day's score
-            flowSteps[i].change = 0
+            let currentNormalizedScore = currentScores[stepId] ?? 0.0
+            let previousNormalizedScore = previousScores[stepId] ?? 0.0
+
+            // Convert normalized scores (0-1) to display scores (0-100)
+            let currentDisplayScore = Int(round(currentNormalizedScore * 100))
+            let previousDisplayScore = Int(round(previousNormalizedScore * 100))
+
+            flowSteps[i].score = currentDisplayScore
+            flowSteps[i].change = currentDisplayScore - previousDisplayScore // Calculate change
+
+            print("  [CycleDataUpdate] Updated FlowStep '\(stepId)' score to \(flowSteps[i].score), change: \(flowSteps[i].change)")
+
         }
-   
+
         // Update EnergyInputs
         // Correct loop: Iterate directly over indices
         for i in energyInputs.indices {
             let inputId = energyInputs[i].id
-            if let normalizedScore = categoryScores[inputId] {
+            if let normalizedScore = currentScores[inputId] {
                 // Convert normalized score (0-1) to display score (0-100)
                 energyInputs[i].score = Int(round(normalizedScore * 100))
                 print("  [CycleDataUpdate] Updated EnergyInput '\(inputId)' score to \(energyInputs[i].score)")
@@ -259,4 +285,4 @@ class CycleDataManager: ObservableObject {
      return CycleView(presentNodeInfo: { _ in })
           .environmentObject(cycleManager)
           .environmentObject(ThemeManager())
- }
+ }  
