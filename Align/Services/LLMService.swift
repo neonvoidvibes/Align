@@ -21,7 +21,7 @@ final class LLMService {
         messagesPayload.append(["role": "user", "content": userMessage])
 
         let requestBodyPayload: [String: Any] = [
-            "model": "gpt-4o",
+            "model": "gpt-4.1",
             "messages": messagesPayload
         ]
 
@@ -104,7 +104,7 @@ final class LLMService {
           ]
 
           let requestBodyPayload: [String: Any] = [
-              "model": "gpt-4o-mini", // Use a model known to support JSON mode well
+              "model": "gpt-4.1-mini", // Use a model known to support JSON mode well
               "messages": messagesPayload,
               "response_format": ["type": "json_object"] // Enforce JSON output
           ]
