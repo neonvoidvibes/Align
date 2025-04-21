@@ -10,24 +10,21 @@ final class LLMService {
          print("LLMService initialized to use API Gateway Proxy.")
     }
 
-    func generateChatResponse(systemPrompt: String, userMessage: String, context: String? = nil) async throws -> String {
-        // --- ADD TYPE PRINTING ---
-        print("[LLMService] Type of 'context' received: \(type(of: context))")
-        // --- END TYPE PRINTING ---
+    // Context parameter removed - it's now embedded in the system prompt by the caller
+    func generateChatResponse(systemPrompt: String, userMessage: String) async throws -> String {
+        // Context print removed
         print("LLMService: Calling API Gateway Proxy for user message: '\(userMessage.prefix(50))...'")
 
-        var messagesPayload: [[String: String]] = []
-        messagesPayload.append(["role": "system", "content": systemPrompt])
-        if let ctx = context, !ctx.isEmpty {
-             messagesPayload.append(["role": "user", "content": "Relevant Context:\n\(ctx)"])
-             // Print context being sent (optional, for debugging)
-             // print("[ChatViewModel] Combined Context for LLM:\n\(ctx)")
-        }
-        messagesPayload.append(["role": "user", "content": userMessage])
+        // Context is now assumed to be embedded within the systemPrompt by the caller
+        var messagesPayload: [[String: String]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": userMessage] // User message follows the system prompt
+        ]
+        // Context handling logic removed
 
         let requestBodyPayload: [String: Any] = [
-            "model": "gpt-4o", // Keep using gpt-4o for chat responses
-            "messages": messagesPayload
+           "model": "gpt-4o", // Keep using gpt-4o for chat responses
+           "messages": messagesPayload
         ]
 
         guard let httpBody = try? JSONSerialization.data(withJSONObject: requestBodyPayload) else {
@@ -70,12 +67,14 @@ final class LLMService {
                      print("Raw Proxy Error Response: \(responseString)")
                      // Specific handling for 429 and 502
                      if httpResponse.statusCode == 429 {
+                         print("‼️ [LLMService] Detected HTTP Status 429 (Too Many Requests). Throwing RateLimitExceeded.") // Added log
                          throw LLMError.rateLimitExceeded("Too many requests. Please wait a moment and try again.")
                      } else if httpResponse.statusCode == 502 {
+                         print("‼️ [LLMService] Detected HTTP Status 502 (Bad Gateway). Throwing BadGateway.") // Added log
                          throw LLMError.badGateway("The server encountered a temporary issue (Bad Gateway). Please try again shortly.")
                      } else {
                          throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)): \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
-                     }
+                    }
                 }
             }
 
@@ -104,8 +103,17 @@ final class LLMService {
             }
 
         } catch let error as LLMError {
-             print("LLMService Error: \(error.localizedDescription)")
-             throw error
+            // Add specific logging based on the caught LLMError type
+            switch error {
+            case .rateLimitExceeded:
+                print("‼️ [LLMService] Handling LLMError.rateLimitExceeded.")
+            case .badGateway:
+                print("‼️ [LLMService] Handling LLMError.badGateway.")
+            default:
+                // Log other LLM errors generically
+                print("LLMService Error: \(error.localizedDescription)")
+            }
+             throw error // Re-throw the original error
         } catch {
             print("LLMService URLSession Error: \(error)")
             throw LLMError.sdkError("Network request failed: \(error.localizedDescription)")
@@ -163,7 +171,16 @@ final class LLMService {
                   let responseString = String(data: data, encoding: .utf8) ?? "No response body"
                   print("Raw Proxy Analysis Error Response: \(responseString)")
                  // Handle specific errors if needed
-                 throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)) during analysis: \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
+                 // Specific handling for 429 and 502 during analysis
+                 if httpResponse.statusCode == 429 {
+                     print("‼️ [LLMService Analysis] Detected HTTP Status 429 (Too Many Requests). Throwing RateLimitExceeded.") // Added log
+                     throw LLMError.rateLimitExceeded("Analysis request rate limited. Please wait a moment.")
+                 } else if httpResponse.statusCode == 502 {
+                     print("‼️ [LLMService Analysis] Detected HTTP Status 502 (Bad Gateway). Throwing BadGateway.") // Added log
+                     throw LLMError.badGateway("Analysis server encountered a temporary issue (Bad Gateway).")
+                 } else {
+                     throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)) during analysis: \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
+                 }
              }
 
              // The proxy *should* return the JSON content directly.
@@ -202,8 +219,17 @@ final class LLMService {
              }
 
          } catch let error as LLMError {
-              print("LLMService Analysis Error: \(error.localizedDescription)")
-              throw error
+              // Add specific logging based on the caught LLMError type for analysis
+              switch error {
+              case .rateLimitExceeded:
+                  print("‼️ [LLMService Analysis] Handling LLMError.rateLimitExceeded.")
+              case .badGateway:
+                  print("‼️ [LLMService Analysis] Handling LLMError.badGateway.")
+              default:
+                  // Log other LLM errors generically
+                  print("LLMService Analysis Error: \(error.localizedDescription)")
+              }
+              throw error // Re-throw the original error
          } catch {
              print("LLMService Analysis URLSession Error: \(error)")
              throw LLMError.sdkError("Analysis network request failed: \(error.localizedDescription)")

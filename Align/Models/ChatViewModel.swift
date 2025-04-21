@@ -177,11 +177,29 @@ class ChatViewModel: ObservableObject {
              print("[ChatViewModel] Combined Context for LLM:\n\(combinedContext ?? "nil")") // Log combined context
 
              do {
-                 // Pass combinedContext (String?) directly to the LLM call
+                 // --- Fetch Current Priority for Context ---
+                 // Note: This adds a small DB read here. Consider if priority should be fetched less often.
+                 var priorityCtx: String? = nil
+                 do {
+                     // Fetch latest priority ONLY
+                     let (_, fetchedPriority, _) = try databaseService.getLatestDisplayScoreAndPriority()
+                     priorityCtx = fetchedPriority // Can be nil if no priority ever saved
+                 } catch {
+                     print("‼️ [ChatViewModel] Error fetching priority for chat context: \(error)")
+                 }
+                 // --- End Fetch Priority ---
+
+                 // Inject context into the prompt template
+                 var finalSystemPrompt = systemPrompt
+                 finalSystemPrompt = finalSystemPrompt.replacingOccurrences(of: "{context}", with: combinedContext ?? "No past context available.")
+                 finalSystemPrompt = finalSystemPrompt.replacingOccurrences(of: "{priority_context}", with: priorityCtx ?? "Not set")
+
+
+                 // Pass the *user message* and the *final prompt*, context is now embedded in the prompt
                  let reply = try await llmService.generateChatResponse(
-                     systemPrompt: systemPrompt,
-                     userMessage: text,
-                     context: combinedContext // Pass the String?
+                     systemPrompt: finalSystemPrompt, // Use the prompt with embedded context
+                     userMessage: text // Still pass the user message for the LLM message structure
+                     // Removed context argument as it's now embedded in the system prompt
                  )
                  let assistantMsg = ChatMessage(role: .assistant, content: reply, timestamp: Date())
                  self.messages.append(assistantMsg)
