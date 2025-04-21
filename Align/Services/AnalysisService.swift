@@ -47,8 +47,12 @@ actor AnalysisService {
              }
 
             // 2. Fetch the *latest* recorded raw values and their date for context & decay calculation
-            let calendar = Calendar.current
-            let today = calendar.startOfDay(for: message.timestamp) // Use message timestamp for the relevant day
+            let calendar = Calendar.current // Use the system's current calendar
+            // Ensure startOfDay is calculated correctly based on the message's timestamp
+            let today = calendar.startOfDay(for: message.timestamp)
+            // Corrected date formatting calls
+            print("[AnalysisService] Determined 'today' for analysis as: \(today.formatted(.iso8601)) based on message timestamp \(message.timestamp.formatted(.iso8601))")
+
             // Call original function name
             let latestData = try? await databaseService.fetchLatestRawValuesAndDate()
             let latestValues = latestData?.values ?? [:]
@@ -235,7 +239,20 @@ actor AnalysisService {
                  }
              }
 
-             // --- Save the calculated category scores ---
+             // --- Calculate Composite "Boost Energy" Score ---
+             // Average the normalized scores of its inputs
+             let energyInputKeys = ["Training", "Sleep", "HealthyFood", "Supplements"]
+             let energySum = energyInputKeys.reduce(0.0) { sum, key in
+                 sum + (categoryScores[key] ?? 0.0) // Use the normalized scores we just calculated
+             }
+             let compositeEnergyScore = energyInputKeys.isEmpty ? 0.0 : energySum / Double(energyInputKeys.count)
+             // Overwrite the Boost Energy score in the dictionary with the composite value
+             categoryScores["Boost Energy"] = compositeEnergyScore
+             print("   [ScoreCalc] Calculated Composite 'Boost Energy' NormScore: \(compositeEnergyScore)")
+             // --- End Composite Score Calculation ---
+
+
+             // --- Save the calculated category scores (including the composite Boost Energy) ---
              // Capture scores locally before passing to MainActor block
              let scoresToSave = categoryScores
              // Run saving on MainActor as DatabaseService is MainActor isolated
