@@ -68,7 +68,14 @@ final class LLMService {
                 } else {
                      let responseString = String(data: data, encoding: .utf8) ?? "No response body"
                      print("Raw Proxy Error Response: \(responseString)")
-                     throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)): \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
+                     // Specific handling for 429 and 502
+                     if httpResponse.statusCode == 429 {
+                         throw LLMError.rateLimitExceeded("Too many requests. Please wait a moment and try again.")
+                     } else if httpResponse.statusCode == 502 {
+                         throw LLMError.badGateway("The server encountered a temporary issue (Bad Gateway). Please try again shortly.")
+                     } else {
+                         throw LLMError.sdkError("Proxy Error (\(httpResponse.statusCode)): \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))")
+                     }
                 }
             }
 
@@ -225,13 +232,17 @@ final class LLMService {
      enum LLMError: Error, LocalizedError, Equatable {
          case sdkError(String)
          case unexpectedResponse(String)
-         case decodingError(String) // Add decoding error case
+         case decodingError(String)
+         case rateLimitExceeded(String) // New case for 429
+         case badGateway(String)      // New case for 502
 
          var errorDescription: String? {
              switch self {
              case .sdkError(let reason): return "LLM Service Error: \(reason)"
              case .unexpectedResponse(let reason): return "Unexpected LLM response: \(reason)"
              case .decodingError(let reason): return "LLM Decoding Error: \(reason)"
+             case .rateLimitExceeded(let reason): return "LLM Rate Limit Error: \(reason)"
+             case .badGateway(let reason): return "LLM Server Error: \(reason)"
              }
          }
      }
