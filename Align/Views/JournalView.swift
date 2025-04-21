@@ -1,21 +1,7 @@
 import SwiftUI
 import UIKit
 
-// --- Preference Keys for ScrollView ---
-// Back to using CGPoint for offset
-struct ScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGPoint = .zero
-    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) {
-        value = nextValue()
-    }
-}
-
-struct ContentHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
+// REMOVED Preference Keys - Not needed for marker visibility logic
 
 // Define a notification name for dismissing copy icons
 extension Notification.Name {
@@ -26,15 +12,14 @@ struct JournalView: View {
     // Inject ChatViewModel via environment
     @EnvironmentObject private var chatViewModel: ChatViewModel
     @EnvironmentObject private var themeManager: ThemeManager
+    @Environment(\.colorScheme) var colorScheme // For button styling
 
-    // State for scroll tracking and button visibility
-    @State private var scrollOffset: CGPoint = .zero
-    @State private var contentHeight: CGFloat = 0
+    // State for scroll arrow visibility
     @State private var showScrollButton = false
-    private let scrollButtonThreshold: CGFloat = 100 // Keep threshold
+    @State private var isBottomMarkerVisible = true // Track visibility of the last item
 
+    // State for ScrollViewProxy
     @State private var viewScrollViewProxy: ScrollViewProxy? = nil
-    @State private var viewVisibleHeight: CGFloat = 0 // Store visible height
 
     var body: some View {
         // Use a ZStack to layer the scroll button over the content
@@ -48,98 +33,83 @@ struct JournalView: View {
             // Scroll to Bottom Button (conditionally visible)
             scrollToBottomButton
         }
-        // REMOVED .keyboardDismissMode - Compiler issue
     }
 
     // Computed property for the message list ScrollView
     private var messageListView: some View {
-        GeometryReader { geometry in // Capture geometry proxy
-            ScrollViewReader { scrollViewProxy in
-                ScrollView {
-                    // Container VStack for content - Apply background tap gesture here
-                    VStack {
-                        LazyVStack(spacing: 16) {
-                            ForEach(chatViewModel.messages) { message in
-                                MessageView(message: message, availableWidth: geometry.size.width)
-                            }
-                            if chatViewModel.isTyping { typingIndicatorView }
-
-                            // Invisible view to scroll to
-                            Color.clear
-                                .frame(height: 1)
-                                .id("bottomID")
+        // REMOVED outer GeometryReader
+        ScrollViewReader { scrollViewProxy in
+            ScrollView {
+                // Container VStack for content - Apply background tap gesture here
+                VStack {
+                    LazyVStack(spacing: 16) {
+                        ForEach(chatViewModel.messages) { message in
+                             MessageView(message: message) // Removed availableWidth passing
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical)
-                        // Track Content Height
-                        .background(GeometryReader { contentProxy in
-                            Color.clear.preference(key: ContentHeightPreferenceKey.self, value: contentProxy.size.height)
-                        })
-                    }
-                     // Apply tap gesture to the background of the scrollable content area
-                    .background(
-                        Color.clear // Use clear color for tap detection layer
-                            .contentShape(Rectangle()) // Make the whole area tappable
-                            .onTapGesture {
-                                // print("ScrollView Background Tapped - Dismissing")
-                                // Dismiss both keyboard and any visible copy icons
-                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                dismissCopyIconsGlobally()
+                        if chatViewModel.isTyping { typingIndicatorView }
+
+                        // Invisible view to scroll to AND track visibility
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottomID")
+                            .onAppear {
+                                // print("✅ bottomID appeared")
+                                isBottomMarkerVisible = true
+                                updateScrollButtonVisibility() // Call update
                             }
-                    )
-                    // Track Scroll Offset using background GeometryReader relative to named coordinate space
-                    .background(GeometryReader { offsetProxy in
-                        Color.clear.preference(key: ScrollOffsetPreferenceKey.self, value: offsetProxy.frame(in: .named("scrollView")).origin)
-                    })
-                }
-                // REMOVED .keyboardDismissMode from ScrollView
-                .coordinateSpace(name: "scrollView")
-                // Update state based on preference changes
-                .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                    self.scrollOffset = value
-                    updateScrollButtonVisibility() // Use stored visibleHeight
-                }
-                .onPreferenceChange(ContentHeightPreferenceKey.self) { value in
-                     // Filter out minor changes potentially caused by typing indicator
-                     if abs(self.contentHeight - value) > 5 {
-                         self.contentHeight = value
-                         updateScrollButtonVisibility() // Use stored visibleHeight
-                     }
-                }
-                // Existing onChange handlers for scrolling
-                .onChange(of: chatViewModel.messages) {
-                    withAnimation(.easeInOut(duration: 0.1)) {
-                        scrollViewProxy.scrollTo("bottomID", anchor: .bottom)
+                            .onDisappear {
+                                // print("❌ bottomID disappeared")
+                                isBottomMarkerVisible = false
+                                updateScrollButtonVisibility() // Call update
+                            }
                     }
-                    DispatchQueue.main.async { // Check visibility after layout
-                       updateScrollButtonVisibility()
-                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical)
+                    // REMOVED Preference Key Backgrounds
+                } // End LazyVStack wrapper VStack
+                 // Apply tap gesture to the background of the scrollable content area
+                .background(
+                    Color.clear // Use clear color for tap detection layer
+                        .contentShape(Rectangle()) // Make the whole area tappable
+                        .onTapGesture {
+                            // print("ScrollView Background Tapped - Dismissing")
+                            // Dismiss both keyboard and any visible copy icons
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            dismissCopyIconsGlobally()
+                        }
+                )
+            } // End ScrollView
+            // REMOVED coordinateSpace and preference change handlers
+            // Keep scroll-on-message/typing handlers
+            .onChange(of: chatViewModel.messages) {
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    scrollViewProxy.scrollTo("bottomID", anchor: .bottom)
                 }
-                .onChange(of: chatViewModel.isTyping) {
-                     withAnimation(.easeInOut(duration: 0.1)) {
-                         scrollViewProxy.scrollTo("bottomID", anchor: .bottom)
-                     }
-                     DispatchQueue.main.async { // Check visibility after layout
-                        updateScrollButtonVisibility()
-                     }
-                }
-                 // Capture the proxy and geometry, check initial state
-                 .onAppear {
-                     self.viewScrollViewProxy = scrollViewProxy
-                     self.viewVisibleHeight = geometry.size.height // Store initial height
-                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { // Keep delay for initial check
-                         updateScrollButtonVisibility()
-                     }
-                 }
-                 // Update stored height if geometry changes (e.g., rotation)
-                 .onChange(of: geometry.size.height) { newHeight in
-                      self.viewVisibleHeight = newHeight
-                      updateScrollButtonVisibility()
+                 // Check visibility after messages change layout
+                 DispatchQueue.main.async {
+                     updateScrollButtonVisibility()
                  }
             }
-        }
-        // REMOVED .keyboardDismissMode from GeometryReader
-    }
+            .onChange(of: chatViewModel.isTyping) {
+                 withAnimation(.easeInOut(duration: 0.1)) {
+                     scrollViewProxy.scrollTo("bottomID", anchor: .bottom)
+                 }
+                 // Check visibility after typing indicator changes layout
+                 DispatchQueue.main.async {
+                     updateScrollButtonVisibility()
+                 }
+            }
+             // REMOVED handler for scroll-on-load trigger
+             // Capture the proxy and check initial state
+             .onAppear {
+                 self.viewScrollViewProxy = scrollViewProxy
+                  // Check visibility state shortly after appear
+                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                     updateScrollButtonVisibility()
+                 }
+             }
+        } // End ScrollViewReader
+    } // End messageListView
 
     // Extracted view for the typing indicator
     private var typingIndicatorView: some View {
@@ -170,10 +140,12 @@ struct JournalView: View {
 
             Button(action: chatViewModel.sendMessage) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 24))
-                    .fontWeight(.bold)
-                    .foregroundColor(themeManager.accentColor)
+                    .font(.system(size: 20, weight: .semibold)) // Adjusted size/weight slightly
+                     // Set icon color to contrast with accent background
+                    .foregroundColor(colorScheme == .dark ? .black : .white)
                     .frame(width: 40, height: 40)
+                     // Apply accent color background as a Circle
+                    .background(Circle().fill(themeManager.accentColor))
             }
             .disabled(chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
@@ -182,7 +154,7 @@ struct JournalView: View {
         .padding(.bottom, 5)
     }
 
-    // Computed property for the scroll-to-bottom button
+    // Reinstated scroll-to-bottom button view builder
     @ViewBuilder
     private var scrollToBottomButton: some View {
         if showScrollButton {
@@ -192,11 +164,11 @@ struct JournalView: View {
                  }
              } label: {
                  Image(systemName: "arrow.down.circle.fill")
-                     .font(.system(size: 39, weight: .medium)) // Kept increased size
+                     .font(.system(size: 39, weight: .medium))
                      .foregroundColor(themeManager.accentColor)
                      .background(Circle().fill(Color(UIColor.systemBackground).opacity(0.8)))
                      .shadow(radius: 3)
-                     .opacity(0.5) // Kept 50% opacity
+                     .opacity(0.5)
              }
              .padding(.bottom, 65)
              .transition(.scale.combined(with: .opacity))
@@ -204,46 +176,23 @@ struct JournalView: View {
         }
     }
 
-
-    // Function to update scroll button visibility using offset and height
+    // Reinstated updateScrollButtonVisibility function using marker visibility
     private func updateScrollButtonVisibility() {
-        // Use stored visibleHeight
-        guard viewVisibleHeight > 0, contentHeight > 0 else {
-            // Ensure button is hidden if dimensions aren't ready
-            if showScrollButton {
-                 // print("❌ Hiding Button: Invalid dimensions (VisibleH: \(viewVisibleHeight), ContentH: \(contentHeight))")
-                 withAnimation(.easeInOut(duration: 0.2)) { showScrollButton = false }
-            }
-            return
-        }
+        // Show button only if the bottom marker is NOT visible
+        let shouldShow = !isBottomMarkerVisible
 
-        // scrollOffset.y is the Y coordinate of the top of the scrollable content
-        // relative to the top of the ScrollView frame. It's 0 or negative when scrolled down.
-        let scrollY = abs(scrollOffset.y) // Distance scrolled from top (positive)
-
-        // Calculate how much content height is currently *below* the bottom edge of the visible frame
-        let contentBelowBottom = contentHeight - scrollY - viewVisibleHeight
-
-        // Show button if the content below the bottom edge exceeds the threshold
-        let shouldShow = contentBelowBottom > scrollButtonThreshold
-
-        // --- DEBUGGING ---
         // print("--- Update Button ---")
-        // print("Visible Height: \(viewVisibleHeight.rounded())")
-        // print("Content Height: \(contentHeight.rounded())")
-        // print("Scroll Offset Y (abs): \(scrollY.rounded())")
-        // print("Content Below Bottom: \(contentBelowBottom.rounded())")
-        // print("Threshold: \(scrollButtonThreshold)")
+        // print("Bottom Marker Visible: \(isBottomMarkerVisible)")
         // print(">>> Should Show Button: \(shouldShow) (Current: \(showScrollButton))")
-        // --- END DEBUGGING ---
 
         if showScrollButton != shouldShow {
             // print("!!! Button State Changing to: \(shouldShow)")
             withAnimation(.easeInOut(duration: 0.2)) {
-                showScrollButton = shouldShow
+                self.showScrollButton = shouldShow
             }
         }
     }
+
 
     // Helper to post notification to dismiss icons globally
     private func dismissCopyIconsGlobally(excluding messageId: UUID? = nil) {
@@ -252,10 +201,10 @@ struct JournalView: View {
 }
 
 
-// MessageView: Added keyboard dismissal to its onTapGesture
+// MessageView: Kept keyboard dismissal on tap, removed availableWidth
 struct MessageView: View {
     let message: ChatMessage
-    let availableWidth: CGFloat
+    // REMOVED availableWidth prop
     @EnvironmentObject private var themeManager: ThemeManager
 
     @State private var showCopyIcon = false
@@ -274,12 +223,10 @@ struct MessageView: View {
 
                 bottomRowContent
             }
-            .frame(maxWidth: message.role == .user ? availableWidth * 0.75 : nil,
+            .frame(maxWidth: message.role == .user ? UIScreen.main.bounds.width * 0.75 : nil, // Approx 75%
                    alignment: message.role == .user ? .trailing : .leading)
             .contentShape(Rectangle()) // Make the entire VStack tappable
             .onTapGesture { // This gesture is for the message bubble itself
-                // print("Message Tapped: \(message.id). Current showCopyIcon: \(showCopyIcon)")
-
                 // Explicitly dismiss keyboard when tapping a message bubble
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 
@@ -343,7 +290,6 @@ struct MessageView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     .contentShape(Rectangle()) // Make icon tappable area slightly larger if needed
                     .onTapGesture { // This gesture is ONLY for the icon itself
-                        // print("Copy Icon Tapped: \(message.id)")
                         UIPasteboard.general.string = message.content
                         withAnimation(.easeInOut(duration: 0.2)) { showCheckmark = true }
                         copyIconTimer?.cancel()

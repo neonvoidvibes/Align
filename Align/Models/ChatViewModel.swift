@@ -10,6 +10,7 @@ class ChatViewModel: ObservableObject {
     @Published var isTyping: Bool = false
     @Published var currentChatId: UUID = UUID()
     @Published var chatTitle: String = "New Chat"
+    // REMOVED @Published var chatJustLoadedTrigger: UUID? = nil
 
     private let databaseService: DatabaseService
     private let llmService: LLMService
@@ -337,6 +338,7 @@ class ChatViewModel: ObservableObject {
         self.chatTitle = chat.title
         self.inputText = ""
         self.isTyping = false
+        // REMOVED self.chatJustLoadedTrigger = chat.id
     }
 
     func refreshChatsFromDB() {
