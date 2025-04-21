@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct JournalView: View {
     // Inject ChatViewModel via environment
@@ -14,6 +15,9 @@ struct JournalView: View {
 
             // Extracted Input Area
             inputAreaView
+        }
+        .onTapGesture {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
         // Remove background modifier from the main VStack, use default system background
     }
