@@ -170,12 +170,15 @@ struct JournalView: View {
                      viewScrollViewProxy?.scrollTo("bottomID", anchor: .bottom)
                  }
              } label: {
-                 // Use outline symbol, color it with accent, place gray circle behind
-                 Image(systemName: "arrow.down.circle") // Use outline version
+                 // Use filled symbol with palette rendering for distinct layer colors
+                 Image(systemName: "arrow.down.circle.fill") // Use filled version
                      .font(.system(size: 39, weight: .medium))
-                     .foregroundColor(themeManager.accentColor) // Color arrow + outline
-                     .background(Circle().fill(Color.gray.opacity(0.5))) // Place gray circle behind
-
+                     .symbolRenderingMode(.palette) // Enable palette rendering
+                     .foregroundStyle(
+                         themeManager.accentColor,      // Primary layer (arrow) = accent color
+                         Color.gray.opacity(0.5)        // Secondary layer (circle fill) = gray 50% transparent
+                     )
+                     // No background modifier needed as the circle is part of the symbol
                      // No border modifier present
              }
              .padding(.bottom, 65)
