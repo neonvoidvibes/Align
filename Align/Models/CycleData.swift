@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine // Added for @MainActor and potentially future publishers
 
 // Node weights according to updated requirements
 // Consider moving this to a shared configuration file/struct if used elsewhere (e.g., AnalysisService)
@@ -26,8 +27,8 @@ struct FlowStep: Identifiable {
     let id: String
     let label: String
     let isPriority: Bool // May need re-evaluation based on single priority node logic
-    var score: Int // TODO: Needs update from analysis service
-    var change: Int // TODO: Needs update from analysis service
+    var score: Int // Updated from analysis service via CycleDataManager
+    var change: Int // Updated from analysis service via CycleDataManager
 
     // Display label mapping remains useful
     var displayLabel: String {
@@ -47,7 +48,7 @@ struct FlowStep: Identifiable {
 struct EnergyInput: Identifiable {
     let id: String
     let label: String
-    var score: Int // TODO: Needs update from analysis service
+    var score: Int // Updated from analysis service via CycleDataManager
 }
 
 // Priority struct now primarily used to format data for the PriorityCardView
@@ -108,30 +109,42 @@ class CycleDataManager: ObservableObject {
         Task {
             do {
                 print("[CycleDataManager] Loading latest score, priority, and category scores...")
-                // Fetch score, priority, and the date they correspond to
-                // Update destructuring to match the new 3-element tuple return type
-                let (latestDate, score, priority) = try await databaseService.getLatestDisplayScoreAndPriority()
+                // Fetch score, priority, and category scores together
+                // Remove await as getLatest... is synchronous and both classes are @MainActor
+                let (score, priority, categoryScores) = try databaseService.getLatestDisplayScoreAndPriority()
                 let displayScore = score ?? 0
                 let currentPriority = priority ?? "Boost Energy"
 
-                var categoryScores: [String: Double] = [:]
-                // Use the 'latestDate' variable destructured above
-                if let dateToFetch = latestDate {
-                     // Fetch category scores for the specific date returned from the DB
-                     categoryScores = (try? await databaseService.fetchCategoryScores(for: dateToFetch)) ?? [:]
-                     // Format date string separately before printing - Use .abbreviated
-                     let dateString = dateToFetch.formatted(date: .abbreviated, time: .omitted)
-                     print("[CycleDataManager] Fetched \(categoryScores.count) category scores for date \(dateString)")
-                 } else {
-                      // No latest date found (e.g., empty DB), use empty scores
-                     print("[CycleDataManager] No latest date found for scores/priority. Using empty category scores.")
+                // No need to fetch category scores separately anymore
+                print("[CycleDataManager] Received \(categoryScores.count) category scores from DB.")
+
+                await MainActor.run {
+                    self.totalScore = displayScore
+                    self.currentPriorityNode = currentPriority
+                    updatePriorityDisplay() // Update priority card based on node and total score
+
+                    // Update individual step/input scores based on categoryScores
+                    updateFlowStepsAndInputs(with: categoryScores)
+
+                    print("[CycleDataManager] Loaded - Score: \(self.totalScore), Priority: \(self.currentPriorityNode)")
+                }
+            } catch {
+                print("‼️ [CycleDataManager] Error loading latest data: \(error)")
+                await MainActor.run {
+                    // Reset to defaults on error
+                    self.totalScore = 0
+                    self.currentPriorityNode = "Boost Energy"
+                    updatePriorityDisplay()
+                    updateFlowStepsAndInputs(with: [:]) // Reset scores with empty dictionary
                 }
             }
         }
     }
 
+
     private func updatePriorityDisplay() {
         let recommendationText = recommendations[self.currentPriorityNode] ?? recommendations["Default"]!
+        // Use self.totalScore directly here
         let current = Priority(id: self.currentPriorityNode, node: self.currentPriorityNode, score: self.totalScore, recommendation: recommendationText)
         self.priorities = [current]
         self.currentPriorityIndex = 0
@@ -140,18 +153,105 @@ class CycleDataManager: ObservableObject {
     }
 
     func getNodeInfo(for nodeId: String) -> (title: String, description: String, importance: String) {
-        let map: [String: (String, String, String)] = [
-            "Boost Energy": (
-                "Boost Energy",
-                "Your energy level affects everything downstream in the cycle. Focus on sleep, nutrition, exercise, and supplements to maintain optimal energy.",
-                "Core lever (Composite Score derived from Training, Sleep, Healthy Food, Supplements)."
-            ),
-            // ... other nodes omitted for brevity
-        ]
-        return map[nodeId] ?? (nodeId, "Information about this node is not available.", "Weight information not available.")
+        // Node descriptions including weight/type information
+        // TODO: Expand descriptions for all nodes
+        let nodeInfoMap: [String: (String, String, String)] = [
+             "Boost Energy": (
+                 "Boost Energy",
+                 "This score reflects your overall energy level, derived from Training, Sleep, Healthy Food, and Supplements. High energy fuels focus and execution.",
+                 "Core Lever (Composite Score, Weight: 30%)"
+             ),
+             "Increase Focus": (
+                 "Increase Focus",
+                 "Measures your ability to concentrate and avoid distractions. Influenced by energy levels and mental clarity.",
+                 "Secondary Node (Direct Score, Weight: 5%)"
+             ),
+             "Execute Tasks": (
+                 "Execute Tasks",
+                 "Represents progress on planned tasks and projects. Directly impacted by focus and energy.",
+                 "Secondary Node (Direct Score, Weight: 5%)"
+             ),
+             "Generate Income": (
+                 "Generate Income",
+                 "Tracks progress towards income goals through work or other activities.",
+                 "Secondary Node (Direct Score, Weight: 5%)"
+             ),
+             "Repay Debt": (
+                 "Repay Debt",
+                 "Monitors efforts towards reducing financial debt and improving financial stability.",
+                 "Core Lever (Direct Score, Weight: 25%)"
+             ),
+             "Nurture Home": (
+                 "Nurture Home",
+                 "Reflects time and effort invested in home life and key relationships.",
+                 "Core Lever (Direct Score, Weight: 25%)"
+             ),
+             "Mental Stability": (
+                 "Mental Stability",
+                 "Indicates emotional balance and resilience. Influenced by all other cycle nodes.",
+                 "Secondary Node (Direct Score, Weight: 5%)"
+             ),
+             // Energy Inputs - Explain their contribution
+             "Training": (
+                 "Training",
+                 "Score based on physical activity duration and consistency. Contributes to Boost Energy.",
+                 "Energy Input (Weight towards Energy: 7.5%)"
+             ),
+             "Sleep": (
+                 "Sleep",
+                 "Score based on sleep duration and quality. Contributes to Boost Energy.",
+                 "Energy Input (Weight towards Energy: 7.5%)"
+             ),
+             "Healthy Food": (
+                 "Healthy Food",
+                 "Score reflecting nutritious food choices. Contributes to Boost Energy.",
+                 "Energy Input (Weight towards Energy: 7.5%)"
+             ),
+             "Supplements": (
+                 "Supplements",
+                 "Score based on consistent intake of planned supplements. Contributes to Boost Energy.",
+                 "Energy Input (Weight towards Energy: 7.5%)"
+             )
+         ]
+         return nodeInfoMap[nodeId] ?? (nodeId, "Information about this node is not available.", "Weight information not available.")
+    }
+
+    // Helper function to update FlowStep and EnergyInput scores
+    private func updateFlowStepsAndInputs(with categoryScores: [String: Double]) {
+        // Update FlowSteps
+        // Correct loop: Iterate directly over indices
+        for i in flowSteps.indices {
+            let stepId = flowSteps[i].id
+            if let normalizedScore = categoryScores[stepId] {
+                // Convert normalized score (0-1) to display score (0-100)
+                flowSteps[i].score = Int(round(normalizedScore * 100))
+                print("  [CycleDataUpdate] Updated FlowStep '\(stepId)' score to \(flowSteps[i].score)")
+            } else {
+                flowSteps[i].score = 0 // Default to 0 if not found
+                print("  [CycleDataUpdate] Category score not found for FlowStep '\(stepId)', setting score to 0")
+            }
+            // TODO: Calculate 'change' based on previous day's score
+            flowSteps[i].change = 0
+        }
+   
+        // Update EnergyInputs
+        // Correct loop: Iterate directly over indices
+        for i in energyInputs.indices {
+            let inputId = energyInputs[i].id
+            if let normalizedScore = categoryScores[inputId] {
+                // Convert normalized score (0-1) to display score (0-100)
+                energyInputs[i].score = Int(round(normalizedScore * 100))
+                print("  [CycleDataUpdate] Updated EnergyInput '\(inputId)' score to \(energyInputs[i].score)")
+            } else {
+                energyInputs[i].score = 0 // Default to 0 if not found
+                print("  [CycleDataUpdate] Category score not found for EnergyInput '\(inputId)', setting score to 0")
+            }
+        }
+        print("[CycleDataManager] Finished updating FlowStep and EnergyInput scores.")
     }
 }
 
+// Preview remains the same, using mock/initial data
 #Preview {
      let previewDbService = try! DatabaseService()
      let cycleManager = CycleDataManager(databaseService: previewDbService)
@@ -159,4 +259,4 @@ class CycleDataManager: ObservableObject {
      return CycleView(presentNodeInfo: { _ in })
           .environmentObject(cycleManager)
           .environmentObject(ThemeManager())
-}
+ }

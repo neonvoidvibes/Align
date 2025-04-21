@@ -134,55 +134,64 @@ class ChatViewModel: ObservableObject {
 
         // Retrieve RAG context, fetch score/priority, call LLM
         Task {
-            var ragContext = ""
-            let queryEmb = await generateEmbedding(for: text)
-            if let emb = queryEmb {
-                do {
-                    let items = try await databaseService.findSimilarChatMessages(to: emb, limit: 5)
-                    // Make header clearer about RAG source
-                    var ctx = ["Context from Past Entries (most relevant first):"]
-                    for item in items {
-                        let filtered = filterPII(text: item.text)
-                        // Ensure (STARRED) is prominent if present
-                        let starredMarker = item.isStarred ? " **(STARRED)**" : ""
-                        let meta = "(\(item.sourceType.rawValue), \(item.date.formatted(date: .numeric, time: .shortened))\(starredMarker))"
-                        ctx.append("- \(meta): \(filtered)") // Add marker to metadata
-                    }
-                    if items.count > 0 { // Only add context if items were found
-                        ragContext = ctx.joined(separator: "\n")
-                    } else {
-                         print("[ChatViewModel] RAG search successful, but no similar past entries found.")
-                    }
-                } catch {
-                    print("‼️ [ChatViewModel] RAG retrieval failed: \(error)")
-                }
-            }
+             // --- TEMPORARILY COMMENT OUT CONTEXT FETCHING ---
+             /*
+             var ragContext = ""
+             let queryEmb = await generateEmbedding(for: text)
+             if let emb = queryEmb {
+                 do {
+                     let items = try await databaseService.findSimilarChatMessages(to: emb, limit: 5)
+                     // Make header clearer about RAG source
+                     var ctx = ["Context from Past Entries (most relevant first):"]
+                     for item in items {
+                         let filtered = filterPII(text: item.text)
+                         // Ensure (STARRED) is prominent if present
+                         let starredMarker = item.isStarred ? " **(STARRED)**" : ""
+                         let meta = "(\(item.sourceType.rawValue), \(item.date.formatted(date: .numeric, time: .shortened))\(starredMarker))"
+                         ctx.append("- \(meta): \(filtered)") // Add marker to metadata
+                     }
+                     if items.count > 0 { // Only add context if items were found
+                         ragContext = ctx.joined(separator: "\n")
+                     } else {
+                          print("[ChatViewModel] RAG search successful, but no similar past entries found.")
+                     }
+                 } catch {
+                     print("‼️ [ChatViewModel] RAG retrieval failed: \(error)")
+                 }
+             }
 
-            var scoreCtx = ""
-            do {
-                let (_, _, p) = try databaseService.getLatestDisplayScoreAndPriority()
-                scoreCtx = p
-                  .map { "Current Priority: \($0)." }
-                  ?? "Current Priority: Not set."
-            } catch {
-                print("‼️ [ChatViewModel] Error fetching score/priority: \(error)")
-            }
-
-             // --- REMOVED Fetch Previous Day Context ---
-             // RAG context + prompt guidance handles historical relevance better
+             var scoreCtx = ""
+             do {
+                 let (_, _, p) = try databaseService.getLatestDisplayScoreAndPriority()
+                 scoreCtx = p
+                   .map { "Current Priority: \($0)." }
+                   ?? "Current Priority: Not set."
+             } catch {
+                 print("‼️ [ChatViewModel] Error fetching score/priority: \(error)")
+             }
+             */
+             // --- END TEMP COMMENT OUT ---
 
 
              let systemPrompt = SystemPrompts.chatAgentPrompt
               // Combine RAG context and Current Priority context
-             let combined = [ragContext, scoreCtx].filter { !$0.isEmpty }.joined(separator: "\n---\n")
+             // Explicitly type as String to help compiler
+             // let combined: String = [ragContext, scoreCtx].filter { !$0.isEmpty }.joined(separator: "\n---\n") // TEMP COMMENT OUT
+             let combined: String? = nil // <-- TEMPORARILY SET TO NIL
 
-             print("[ChatViewModel] Combined Context for LLM:\n\(combined)") // Log combined context
+             // --- ADD TYPE PRINTING ---
+             print("[ChatViewModel] Type of 'combined' before call: \(type(of: combined))")
+             // --- END TYPE PRINTING ---
+
+             print("[ChatViewModel] Combined Context for LLM:\n\(combined ?? "nil")") // Log combined context
 
              do {
+                 // Correctly check if combined is non-nil and non-empty before passing
+                 let contextToSend = (combined ?? "").isEmpty ? nil : combined
                  let reply = try await llmService.generateChatResponse(
                     systemPrompt: systemPrompt,
                     userMessage: text, // Send original user message
-                    context: combined.isEmpty ? nil : combined // Pass combined context
+                    context: contextToSend // Pass the potentially nil context
                 )
                 let assistantMsg = ChatMessage(role: .assistant, content: reply, timestamp: Date())
                 self.messages.append(assistantMsg)

@@ -458,9 +458,17 @@ class DatabaseService: ObservableObject {
           let dateInt = dateToInt(date)
           let sql = "SELECT category, normalized_score FROM CategoryScores WHERE date = ?;"
           let params: [Value] = [.integer(Int64(dateInt))]
+          // Add Logging
+          print("  [DB FetchCategoryScores] Querying for dateInt: \(dateInt)")
+          print("  [DB FetchCategoryScores] SQL: \(sql)")
+
           let rows = try connection.query(sql, params)
+          // Log row count immediately after query
+          let rowCount = rows.underestimatedCount // Use underestimatedCount for potentially large sets
+          print("  [DB FetchCategoryScores] Query returned \(rowCount) rows.")
+
           var results: [String: Double] = [:]
-          for row in rows {
+          for row in rows { // Iterate using the already fetched rows
               if let category = try? row.getString(Int32(0)), let score = try? row.getDouble(Int32(1)) {
                   results[category] = score
               } else {
@@ -573,8 +581,8 @@ class DatabaseService: ObservableObject {
          print("✅ [DB-Priority] Saved priority node '\(node)' for date \(dateInt).") // Keep original log format
      }
 
-     // Fetch the latest display score, priority node, and their corresponding date - Synchronous
-     func getLatestDisplayScoreAndPriority() throws -> (date: Date?, displayScore: Int?, priorityNode: String?) {
+     // Fetch the latest display score, priority node, and category scores for the corresponding date - Synchronous
+     func getLatestDisplayScoreAndPriority() throws -> (displayScore: Int?, priorityNode: String?, categoryScores: [String: Double]) {
          // Fetch latest score and its date
          let scoresSql = "SELECT date, display_score FROM Scores ORDER BY date DESC LIMIT 1;"
          // Fetch latest priority and its date
@@ -608,22 +616,44 @@ class DatabaseService: ObservableObject {
              }
              if let node = try? row.getString(Int32(1)) {
                  priorityNode = node
-             }
-             break // Exit after first row
+          }
+          break // Exit after first row
          }
 
          // Determine the overall latest date between score and priority entries
          // Use the date associated with the score if available, otherwise priority date
-         let latestDateInt = latestScoreDateInt ?? latestPriorityDateInt
-         let latestDate = latestDateInt.flatMap { intToDate(Int($0)) } // Convert latest Int64? to Date?
+         let latestDateInt64 = latestScoreDateInt ?? latestPriorityDateInt
+         let latestDate = latestDateInt64.flatMap { intToDate(Int($0)) } // Convert latest Int64? to Date?
+
+         // --- Fetch Category Scores for the latest date ---
+         var categoryScores: [String: Double] = [:]
+         if let dateInt64 = latestDateInt64 {
+             let categorySql = "SELECT category, normalized_score FROM CategoryScores WHERE date = ?;"
+             let categoryParams: [Value] = [.integer(dateInt64)]
+             do {
+                 let categoryRows = try connection.query(categorySql, categoryParams)
+                 for row in categoryRows {
+                     if let category = try? row.getString(Int32(0)), let score = try? row.getDouble(Int32(1)) {
+                         categoryScores[category] = score
+                     }
+                 }
+                 print("[DB-Read] Fetched \(categoryScores.count) category scores for date \(dateInt64).")
+             } catch {
+                  print("‼️ [DB-Read] Error fetching category scores within getLatest: \(error)")
+                  // Continue without category scores if fetch fails
+             }
+         } else {
+              print("[DB-Read] No latest date found, cannot fetch category scores.")
+         }
+         // --- End Fetch Category Scores ---
+
 
          // Log the fetched values (or defaults)
-         // Use correct formatted() syntax
          let dateString = latestDate?.formatted(.iso8601) ?? "N/A"
-         print("[DB-Read] Fetched latest - Date: \(dateString), Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A")")
+         print("[DB-Read] Fetched latest - Date: \(dateString), Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A"), CategoryScores: \(categoryScores.count) items")
 
-         // Return the tuple including the date
-         return (date: latestDate, displayScore: displayScore, priorityNode: priorityNode)
+         // Return the tuple including categoryScores, removing date
+         return (displayScore: displayScore, priorityNode: priorityNode, categoryScores: categoryScores)
      }
 
 

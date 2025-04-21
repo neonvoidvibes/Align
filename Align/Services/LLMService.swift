@@ -11,6 +11,9 @@ final class LLMService {
     }
 
     func generateChatResponse(systemPrompt: String, userMessage: String, context: String? = nil) async throws -> String {
+        // --- ADD TYPE PRINTING ---
+        print("[LLMService] Type of 'context' received: \(type(of: context))")
+        // --- END TYPE PRINTING ---
         print("LLMService: Calling API Gateway Proxy for user message: '\(userMessage.prefix(50))...'")
 
         var messagesPayload: [[String: String]] = []

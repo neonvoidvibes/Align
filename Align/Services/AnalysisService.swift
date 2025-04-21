@@ -242,6 +242,9 @@ actor AnalysisService {
              try await MainActor.run {
                  // Pass the captured scores dictionary
                  try databaseService.saveCategoryScores(scores: scoresToSave, for: date)
+                 // Add confirmation log *inside* the block
+                 // Use .abbreviated format consistent with other logs
+                 print("✅ [AnalysisService-ScoreCalc] Successfully called saveCategoryScores on MainActor for date \(date.formatted(date: .abbreviated, time: .omitted)).")
              }
              // --- End saving category scores ---
 
