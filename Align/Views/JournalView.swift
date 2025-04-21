@@ -33,6 +33,11 @@ struct JournalView: View {
             // Scroll to Bottom Button (conditionally visible)
             scrollToBottomButton
         }
+        .onDisappear {
+            // Scroll to bottom in the background when leaving the view
+            // Use non-animated scroll as it's happening off-screen
+            viewScrollViewProxy?.scrollTo("bottomID", anchor: .bottom)
+        }
     }
 
     // Computed property for the message list ScrollView
@@ -103,8 +108,10 @@ struct JournalView: View {
              // Capture the proxy and check initial state
              .onAppear {
                  self.viewScrollViewProxy = scrollViewProxy
-                  // Check visibility state shortly after appear
+                 // Scroll to bottom shortly after appear to ensure layout is ready
                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                     scrollViewProxy.scrollTo("bottomID", anchor: .bottom)
+                     // Check visibility state after scrolling
                      updateScrollButtonVisibility()
                  }
              }
@@ -165,10 +172,10 @@ struct JournalView: View {
              } label: {
                  Image(systemName: "arrow.down.circle.fill")
                      .font(.system(size: 39, weight: .medium))
-                     .foregroundColor(themeManager.accentColor)
-                     .background(Circle().fill(Color(UIColor.systemBackground).opacity(0.8)))
-                     .shadow(radius: 3)
-                     .opacity(0.5)
+                     .foregroundColor(themeManager.accentColor) // Arrow uses accent color (correct)
+                     .background(Circle().fill(Color.gray.opacity(0.8))) // Gray background, still transparent
+                     // Removed shadow
+                     // Removed outer opacity
              }
              .padding(.bottom, 65)
              .transition(.scale.combined(with: .opacity))
