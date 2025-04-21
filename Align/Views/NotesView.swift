@@ -13,7 +13,7 @@ struct NotesView: View {
         VStack(spacing: 0) {
             buildList()
         }
-        .background(Color.black.ignoresSafeArea())
+        // Removed explicit black background to use system default
         .onAppear {
             // Optionally refresh chat list
         }
@@ -26,7 +26,7 @@ struct NotesView: View {
                 Text("No previous notes found.")
                     .font(.futura(size: 18))
                     .foregroundColor(.gray)
-                    .listRowBackground(Color.black)
+                    // Removed listRowBackground
                     .listRowSeparator(.hidden)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.top, 50)
@@ -37,7 +37,7 @@ struct NotesView: View {
                             NoteRow(chat: chat)
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                                .listRowBackground(Color.black)
+                                // Removed listRowBackground
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     chatViewModel.loadChat(withId: chat.id)
@@ -49,7 +49,7 @@ struct NotesView: View {
             }
         }
         .listStyle(.plain)
-        .background(Color.black)
+        // Removed explicit black background
         .environment(\.defaultMinListRowHeight, 50)
 
         if #available(iOS 16.0, *) {
@@ -73,7 +73,7 @@ struct StickyHeader: View {
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 20)
-        .background(Color.black)
+        // Removed explicit black background
         .listRowInsets(EdgeInsets())
     }
 }

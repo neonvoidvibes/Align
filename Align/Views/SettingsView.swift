@@ -45,7 +45,10 @@ struct SettingsView: View {
                                 )
                             )
                         }
-                        
+                        .padding(UIStyles.cardPadding)
+                        .background(UIStyles.cardBackground)
+                        .cornerRadius(UIStyles.cardCornerRadius)
+
                         // Font Size
                         SettingsOptionView(title: "Font Size") {
                             SegmentedPickerView(
@@ -56,7 +59,10 @@ struct SettingsView: View {
                                 )
                             )
                         }
-                        
+                        .padding(UIStyles.cardPadding)
+                        .background(UIStyles.cardBackground)
+                        .cornerRadius(UIStyles.cardCornerRadius)
+
                         // Accent Color
                         SettingsOptionView(title: "Accent Color") {
                             HStack(spacing: 12) {
@@ -75,8 +81,11 @@ struct SettingsView: View {
                                 }
                             }
                         }
+                        .padding(UIStyles.cardPadding)
+                        .background(UIStyles.cardBackground)
+                        .cornerRadius(UIStyles.cardCornerRadius)
                     }
-                    
+
                     // Notifications Section
                     SettingsSectionView(
                         icon: "bell",
@@ -90,7 +99,10 @@ struct SettingsView: View {
                             Toggle("", isOn: $dailyReminder)
                                 .toggleStyle(SwitchToggleStyle(tint: themeManager.accentColor))
                         }
-                        
+                        .padding(UIStyles.cardPadding)
+                        .background(UIStyles.cardBackground)
+                        .cornerRadius(UIStyles.cardCornerRadius)
+
                         // Sound Effects
                         SettingsOptionView(
                             title: "Sound Effects",
@@ -99,8 +111,11 @@ struct SettingsView: View {
                             Toggle("", isOn: $soundEffects)
                                 .toggleStyle(SwitchToggleStyle(tint: themeManager.accentColor))
                         }
+                        .padding(UIStyles.cardPadding)
+                        .background(UIStyles.cardBackground)
+                        .cornerRadius(UIStyles.cardCornerRadius)
                     }
-                    
+
                     // About Section
                     SettingsSectionView(
                         icon: "info.circle",
@@ -182,7 +197,7 @@ struct SettingsOptionView<Content: View>: View {
             
             content
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 10) // Increased vertical padding slightly
     }
 }
 

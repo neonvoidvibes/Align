@@ -62,8 +62,8 @@ struct JournalView: View {
                         .frame(height: 1)
                         .id("bottomID")
                 }
-                .padding() // Keep original padding if needed
-                .padding() // Keep original padding if needed
+                .padding(.horizontal, 18)
+                .padding(.vertical) // Apply vertical padding
             }
             // Updated onChange syntax (ignoring parameters)
             .onChange(of: chatViewModel.messages) {
@@ -92,22 +92,26 @@ struct JournalView: View {
         HStack(spacing: 12) {
             TextField("How's your day going?", text: $chatViewModel.inputText)
                 .font(.futura(size: 20))
-                .padding(12)
+                // Adjust internal padding: reduce leading further
+                .padding(.vertical, 12)
+                .padding(.leading, 5)
+                .padding(.trailing, 12)
                 // Make background transparent
                 .background(.clear)
                 .cornerRadius(20) // Keep corner radius for the shape
 
             Button(action: chatViewModel.sendMessage) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 20))
-                    .fontWeight(.semibold) // Make the arrow icon thicker
+                    .font(.system(size: 24)) // Increased size further
+                    .fontWeight(.bold) // Make the arrow icon thicker (bold)
                     .foregroundColor(themeManager.accentColor)
                     .frame(width: 40, height: 40)
             }
+            // Removed specific button padding
             .disabled(chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        // Apply padding for content positioning within the input area
-        .padding(.horizontal)
+        // Apply standard padding for content positioning within the input area
+        .padding(.horizontal, 18)
         .padding(.vertical, 8)
         // No background needed for the HStack, it sits on the main view background
     }
@@ -133,7 +137,7 @@ struct MessageView: View {
                         .font(.futura(size: 12))
                         .foregroundColor(.gray)
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 3) // Add 3pt horizontal padding
                 // Ensure assistant bubble takes max width if needed, or keep as is
                 Spacer() // Pushes assistant bubble left
             } else { // User message
@@ -149,7 +153,7 @@ struct MessageView: View {
                         .font(.futura(size: 12))
                         .foregroundColor(.gray)
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 3) // Add 3pt horizontal padding
             }
         }
     }

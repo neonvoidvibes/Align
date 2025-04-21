@@ -49,6 +49,7 @@ struct PriorityCardView: View {
     let isHighestPriority: Bool
     let showNavigation: Bool
     @EnvironmentObject private var themeManager: ThemeManager
+    @Environment(\.colorScheme) var colorScheme // Add color scheme environment
 
     var body: some View {
         ZStack {
@@ -59,9 +60,11 @@ struct PriorityCardView: View {
                 HStack(spacing: 0) {
                     if showNavigation {
                         Button(action: { }) {
-                            Image(systemName: "chevron.left")
+                            Image(systemName: "chevron.right")
                                 .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(isHighestPriority ? .black : themeManager.accentColor)
+                                // Conditional color for chevron
+                                // Conditional color for chevron
+                                .foregroundColor(isHighestPriority ? (colorScheme == .light ? .white : .black) : themeManager.accentColor)
                                 .frame(width: 40, height: 40)
                                 .contentShape(Rectangle())
                         }
@@ -76,12 +79,14 @@ struct PriorityCardView: View {
                     VStack(spacing: 8) {
                         Text(priority.node)
                             .font(.futura(size: 24, weight: .bold))
-                            .foregroundColor(isHighestPriority ? .black : .primary)
+                            // Conditional color: white in light mode, black in dark mode for highest priority
+                            .foregroundColor(isHighestPriority ? (colorScheme == .light ? .white : .black) : .primary)
 
                         Text(priority.recommendation)
                             .font(.futura(size: 18))
                             .multilineTextAlignment(.center)
-                            .foregroundColor(isHighestPriority ? .black.opacity(0.8) : .gray)
+                            // Conditional color: dimmed white in light mode, dimmed black in dark mode for highest priority
+                            .foregroundColor(isHighestPriority ? (colorScheme == .light ? Color.white.opacity(0.8) : Color.black.opacity(0.8)) : .gray)
                             .lineLimit(3)
                     }
                     .frame(maxWidth: .infinity)
@@ -108,7 +113,8 @@ struct PriorityCardView: View {
                         ForEach(0..<1, id: \.self) { _ in
                             Capsule()
                                 .frame(width: 16, height: 6)
-                                .foregroundColor(isHighestPriority ? .black : themeManager.accentColor)
+                                // Conditional color for dots
+                                .foregroundColor(isHighestPriority ? (colorScheme == .light ? .white : .black) : themeManager.accentColor)
                                 .animation(.easeInOut(duration: 0.2), value: true)
                         }
                     }
