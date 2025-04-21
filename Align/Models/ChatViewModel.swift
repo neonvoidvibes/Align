@@ -160,13 +160,10 @@ class ChatViewModel: ObservableObject {
 
             var scoreCtx = ""
             do {
-                let (_, p) = try databaseService.getLatestDisplayScoreAndPriority() // Fetch both, but only use priority
-                 // Only include priority, not score
-                if let p = p {
-                    scoreCtx = "Current Priority: \(p)."
-                } else {
-                     scoreCtx = "Current Priority: Not set." // Indicate if priority is missing
-                }
+                let (_, _, p) = try databaseService.getLatestDisplayScoreAndPriority()
+                scoreCtx = p
+                  .map { "Current Priority: \($0)." }
+                  ?? "Current Priority: Not set."
             } catch {
                 print("‼️ [ChatViewModel] Error fetching score/priority: \(error)")
             }

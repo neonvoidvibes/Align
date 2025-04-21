@@ -141,11 +141,13 @@ actor AnalysisService {
             }
             // Explicitly run on MainActor since DatabaseService is @MainActor isolated
             try await MainActor.run {
-                try databaseService.savePriorityNode(date: today, node: priorityNode)
-            }
-            print("✅ [AnalysisService] Saved scores and priority node.")
+                 try databaseService.savePriorityNode(date: today, node: priorityNode)
+             }
+             // Log the specific date being saved for clarity - Use correct formatted() syntax
+             print("✅ [AnalysisService] Saved display score (\(displayScore)) and priority node ('\(priorityNode)') for date \(today.formatted(.iso8601)).")
 
-            // 9. Mark Message as Processed
+
+             // 9. Mark Message as Processed
             try await databaseService.markChatMessageProcessed(messageId)
             print("✅ [AnalysisService] Marked message \(messageId) as processed.")
 

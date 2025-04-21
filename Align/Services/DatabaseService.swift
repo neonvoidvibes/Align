@@ -573,39 +573,57 @@ class DatabaseService: ObservableObject {
          print("✅ [DB-Priority] Saved priority node '\(node)' for date \(dateInt).") // Keep original log format
      }
 
-     // Fetch the latest display score and priority node - Synchronous
-     func getLatestDisplayScoreAndPriority() throws -> (displayScore: Int?, priorityNode: String?) {
-         let scoresSql = "SELECT display_score FROM Scores ORDER BY date DESC LIMIT 1;"
-         let prioritySql = "SELECT node FROM PriorityNodes ORDER BY date DESC LIMIT 1;"
+     // Fetch the latest display score, priority node, and their corresponding date - Synchronous
+     func getLatestDisplayScoreAndPriority() throws -> (date: Date?, displayScore: Int?, priorityNode: String?) {
+         // Fetch latest score and its date
+         let scoresSql = "SELECT date, display_score FROM Scores ORDER BY date DESC LIMIT 1;"
+         // Fetch latest priority and its date
+         let prioritySql = "SELECT date, node FROM PriorityNodes ORDER BY date DESC LIMIT 1;"
 
          let scoreRows = try connection.query(scoresSql)
          let priorityRows = try connection.query(prioritySql)
 
+         var latestScoreDateInt: Int64? = nil
          var displayScore: Int? = nil
+         var latestPriorityDateInt: Int64? = nil
          var priorityNode: String? = nil
 
-         // Iterate for score (max 1 row due to LIMIT 1)
-         // LEARNING: Iterate even for LIMIT 1 queries.
+         // Iterate for score and its date
          for row in scoreRows {
-             // LEARNING: Use explicit Int32 index.
-             if let scoreInt64 = try? row.getInt(Int32(0)) {
-                 displayScore = Int(scoreInt64)
+             // Use optional binding with try? AND explicit Int64 cast to resolve ambiguity
+             if let dateInt = try? Int64(row.getInt(Int32(0))) { // Explicit cast added
+                 latestScoreDateInt = dateInt
              }
-             break // Exit loop after processing the first (only) row
+             if let scoreInt = try? row.getInt(Int32(1)) {
+                 displayScore = Int(scoreInt)
+             }
+             break // Exit after first row
          }
 
-         // Iterate for priority (max 1 row due to LIMIT 1)
-         // LEARNING: Iterate even for LIMIT 1 queries.
+         // Iterate for priority and its date
          for row in priorityRows {
-             // LEARNING: Use explicit Int32 index.
-             priorityNode = try? row.getString(Int32(0))
-             break // Exit loop after processing the first (only) row
+              // Use optional binding with try? AND explicit Int64 cast to resolve ambiguity
+             if let dateInt = try? Int64(row.getInt(Int32(0))) { // Explicit cast added
+                 latestPriorityDateInt = dateInt
+             }
+             if let node = try? row.getString(Int32(1)) {
+                 priorityNode = node
+             }
+             break // Exit after first row
          }
+
+         // Determine the overall latest date between score and priority entries
+         // Use the date associated with the score if available, otherwise priority date
+         let latestDateInt = latestScoreDateInt ?? latestPriorityDateInt
+         let latestDate = latestDateInt.flatMap { intToDate(Int($0)) } // Convert latest Int64? to Date?
 
          // Log the fetched values (or defaults)
-         print("[DB-Read] Fetched latest - Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A")")
+         // Use correct formatted() syntax
+         let dateString = latestDate?.formatted(.iso8601) ?? "N/A"
+         print("[DB-Read] Fetched latest - Date: \(dateString), Score: \(displayScore ?? -1), Priority: \(priorityNode ?? "N/A")")
 
-         return (displayScore, priorityNode)
+         // Return the tuple including the date
+         return (date: latestDate, displayScore: displayScore, priorityNode: priorityNode)
      }
 
 

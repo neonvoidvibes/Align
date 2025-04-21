@@ -107,20 +107,24 @@ class CycleDataManager: ObservableObject {
     func loadLatestData() {
         Task {
             do {
-                print("[CycleDataManager] Loading latest score and priority...")
-                let (score, priority) = try await databaseService.getLatestDisplayScoreAndPriority()
-                await MainActor.run {
-                    self.totalScore = score ?? 0
-                    self.currentPriorityNode = priority ?? "Boost Energy"
-                    updatePriorityDisplay()
-                    print("[CycleDataManager] Loaded - Score: \(self.totalScore), Priority: \(self.currentPriorityNode)")
-                }
-            } catch {
-                print("‼️ [CycleDataManager] Error loading latest data: \(error)")
-                await MainActor.run {
-                    self.totalScore = 0
-                    self.currentPriorityNode = "Boost Energy"
-                    updatePriorityDisplay()
+                print("[CycleDataManager] Loading latest score, priority, and category scores...")
+                // Fetch score, priority, and the date they correspond to
+                // Update destructuring to match the new 3-element tuple return type
+                let (latestDate, score, priority) = try await databaseService.getLatestDisplayScoreAndPriority()
+                let displayScore = score ?? 0
+                let currentPriority = priority ?? "Boost Energy"
+
+                var categoryScores: [String: Double] = [:]
+                // Use the 'latestDate' variable destructured above
+                if let dateToFetch = latestDate {
+                     // Fetch category scores for the specific date returned from the DB
+                     categoryScores = (try? await databaseService.fetchCategoryScores(for: dateToFetch)) ?? [:]
+                     // Format date string separately before printing - Use .abbreviated
+                     let dateString = dateToFetch.formatted(date: .abbreviated, time: .omitted)
+                     print("[CycleDataManager] Fetched \(categoryScores.count) category scores for date \(dateString)")
+                 } else {
+                      // No latest date found (e.g., empty DB), use empty scores
+                     print("[CycleDataManager] No latest date found for scores/priority. Using empty category scores.")
                 }
             }
         }
