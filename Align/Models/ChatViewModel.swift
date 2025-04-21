@@ -76,14 +76,17 @@ class ChatViewModel: ObservableObject {
         let newChat = Chat()
         self.currentChat = newChat
         self.currentChatId = newChat.id
-        let initial = ChatMessage(
-            role: .assistant,
-            content: "How's your day going? Tell me about your energy, work, and home life.",
-            timestamp: Date()
-        )
-        self.messages = [initial]
+        // Clear messages and set title immediately
+        self.messages = []
         self.chatTitle = newChat.title
         self.inputText = ""
+        // Add the new chat to the dictionary
+        self.chats[newChat.id] = newChat // Ensure chat exists before async generation
+
+        // Trigger async generation of the initial message
+        Task {
+            await generateAndAddInitialAssistantMessage()
+        }
         self.isTyping = false
         self.chats[newChat.id] = newChat
     }
@@ -397,5 +400,92 @@ class ChatViewModel: ObservableObject {
             return lhsDate > rhsDate
         }
         return sorted
+    }
+
+    // Generates the very first assistant message for a new chat session
+    private func generateAndAddInitialAssistantMessage() async {
+        guard let chatId = self.currentChat?.id else {
+            print("‼️ [ChatViewModel] Cannot generate initial message, currentChat is nil.")
+            return
+        }
+
+        // Ensure we don't add message if one already exists (e.g., race condition)
+        guard self.messages.isEmpty else {
+             print("[ChatViewModel] Initial message already exists or added. Skipping generation.")
+             return
+        }
+
+
+        print("[ChatViewModel] Generating initial assistant message for chat \(chatId)...")
+        self.isTyping = true // Show typing indicator
+
+        // Simple prompt for an opener
+        let systemPrompt = """
+        You are the Align assistant starting a brand new conversation.
+        Greet the user warmly and ask a concise, open-ended question to gently encourage them to share about their day or current state.
+        Keep it very brief (1-2 sentences). Example: "Hey there! How's your day unfolding?" or "Good to connect. What's on your mind today?"
+        """
+
+        do {
+            let reply = try await llmService.generateChatResponse(
+                systemPrompt: systemPrompt,
+                userMessage: "" // No user message for the initial greeting
+            )
+            let assistantMsg = ChatMessage(role: .assistant, content: reply, timestamp: Date())
+
+            // Update state on the main thread
+            await MainActor.run {
+                self.messages.append(assistantMsg)
+                self.currentChat?.messages.append(assistantMsg)
+                self.currentChat?.lastUpdatedAt = assistantMsg.timestamp
+                if let chat = self.currentChat {
+                    self.chats[chat.id] = chat // Update chat dictionary
+                }
+                self.isTyping = false
+                print("[ChatViewModel] Added generated initial message.")
+            }
+
+
+            // Save assistant message in background
+            Task.detached(priority: .utility) { [weak self] in
+                 guard let self = self else { return }
+                 let emb = await generateEmbedding(for: assistantMsg.content)
+                 do {
+                     // Use the captured chatId
+                     try await self.databaseService.saveChatMessage(assistantMsg, chatId: chatId, embedding: emb)
+                     print("[ChatViewModel] Initial assistant message saved to DB.")
+                 } catch {
+                     print("‼️ [ChatViewModel] Error saving initial assistant message: \(error)")
+                 }
+             }
+
+        } catch {
+            print("‼️ [ChatViewModel] LLM error generating initial message: \(error)")
+            // Fallback to a static message on error
+            let fallbackMsg = ChatMessage(
+                role: .assistant,
+                content: "Hello! How can I help you align today?",
+                timestamp: Date()
+            )
+            await MainActor.run {
+                 self.messages.append(fallbackMsg)
+                 self.currentChat?.messages.append(fallbackMsg)
+                 self.currentChat?.lastUpdatedAt = fallbackMsg.timestamp
+                 if let chat = self.currentChat {
+                     self.chats[chat.id] = chat // Update chat dictionary
+                 }
+                 self.isTyping = false
+            }
+            // Attempt to save fallback message
+            Task.detached(priority: .utility) { [weak self] in
+                 guard let self = self else { return }
+                 let emb = await generateEmbedding(for: fallbackMsg.content)
+                 do {
+                     try await self.databaseService.saveChatMessage(fallbackMsg, chatId: chatId, embedding: emb)
+                 } catch {
+                     print("‼️ [ChatViewModel] Error saving fallback initial message: \(error)")
+                 }
+             }
+        }
     }
 }
