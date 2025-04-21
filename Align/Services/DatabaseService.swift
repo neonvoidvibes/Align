@@ -593,8 +593,8 @@ class DatabaseService: ObservableObject {
 
          var latestScoreDateInt: Int64? = nil
          var displayScore: Int? = nil
-         var latestPriorityDateInt: Int64? = nil
-         var priorityNode: String? = nil
+         // Remove separate latestPriorityDateInt and priorityNode variables here
+         // We will fetch the priority specifically for the latestScoreDateInt
 
          // Iterate for score and its date
          for row in scoreRows {
@@ -608,21 +608,27 @@ class DatabaseService: ObservableObject {
              break // Exit after first row
          }
 
-         // Iterate for priority and its date
-         for row in priorityRows {
-              // Use optional binding with try? AND explicit Int64 cast to resolve ambiguity
-             if let dateInt = try? Int64(row.getInt(Int32(0))) { // Explicit cast added
-                 latestPriorityDateInt = dateInt
+         // Now fetch the priority node specifically for the latestScoreDateInt
+         var priorityNode: String? = nil
+         if let scoreDateInt = latestScoreDateInt {
+             let priorityForScoreDateSql = "SELECT node FROM PriorityNodes WHERE date = ? LIMIT 1;"
+             let priorityParams: [Value] = [.integer(scoreDateInt)]
+             do {
+                 let specificPriorityRows = try connection.query(priorityForScoreDateSql, priorityParams)
+                 for row in specificPriorityRows {
+                     if let node = try? row.getString(Int32(0)) {
+                         priorityNode = node
+                     }
+                     break // Exit after first row
+                 }
+             } catch {
+                 print("‼️ [DB-Read] Error fetching priority node for score date \(scoreDateInt): \(error)")
+                 // priorityNode remains nil
              }
-             if let node = try? row.getString(Int32(1)) {
-                 priorityNode = node
-          }
-          break // Exit after first row
          }
 
-         // Determine the overall latest date between score and priority entries
-         // Use the date associated with the score if available, otherwise priority date
-         let latestDateInt64 = latestScoreDateInt ?? latestPriorityDateInt
+         // Use the score date as the definitive latest date
+         let latestDateInt64 = latestScoreDateInt // Use only the score date
          let latestDate = latestDateInt64.flatMap { intToDate(Int($0)) } // Convert latest Int64? to Date?
 
          // --- Fetch Category Scores for the latest date ---
